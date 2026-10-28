@@ -45,9 +45,10 @@ t('combo + stats + streak', () => {
   assert.strictEqual(Math.round(s.sleepMin), 470);
   assert.strictEqual(s.tasksDone, 3);
   assert.strictEqual(Math.round(s.wastedMin), 300 - 100 - 90);
-  const streakDays = { '2026-10-26': { finishedAt: 'x', grade: 'B' }, '2026-10-27': { finishedAt: 'x', grade: 'A' } };
+  assert.strictEqual(Math.round(s.prod * 100), Math.round(100 / S.workGoalMin * 100));
+  const streakDays = { '2026-10-26': { finishedAt: 'x', stats: { prod: 0.8 } }, '2026-10-27': { finishedAt: 'x', stats: { prod: 1.1 } } };
   assert.strictEqual(L.streak(streakDays, '2026-10-28'), 2);
-  streakDays['2026-10-28'] = { finishedAt: 'x', grade: 'C' };
+  streakDays['2026-10-28'] = { finishedAt: 'x', stats: { prod: 0.6 } };
   assert.strictEqual(L.streak(streakDays, '2026-10-28'), 0);
 });
 console.log(`${ok} passed`);

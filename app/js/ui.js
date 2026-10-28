@@ -171,6 +171,15 @@
 
   // ---------- Settings ----------
   let routineTab = 'morning';
+  const THEMES = [['green', '#30d158'], ['orange', '#ff9f0a'], ['blue', '#0a84ff'], ['purple', '#bf5af2'], ['pink', '#ff375f'], ['mono', '#f2f2f7']];
+  // The accent colour of the whole app comes from one attribute on <html>.
+  function applyTheme() {
+    const t = S.settings.theme || 'green';
+    if (t === 'green') delete document.documentElement.dataset.accent; else document.documentElement.dataset.accent = t;
+    const c = (THEMES.find((x) => x[0] === t) || THEMES[0])[1];
+    document.querySelector('meta[name=theme-color]').setAttribute('content', '#000000');
+    document.documentElement.style.setProperty('--f7-theme-color', c);
+  }
   function settingsPopup() {
     const app = window.app;
     const popup = app.popup.create({
@@ -189,7 +198,10 @@
       const stepper = (name, val, label) => `<li><div class="item-content"><div class="item-inner"><div class="item-title">${label}</div><div class="item-after">
         <span class="num" style="margin-right:12px;color:var(--label)">${L.fmtDur(val)}</span>
         <div class="stepper stepper-small"><div class="stepper-button-minus" data-step="${name}" data-d="-15"></div><div class="stepper-button-plus" data-step="${name}" data-d="15"></div></div></div></div></div></li>`;
+      const theme = S.settings.theme || 'green';
       body.innerHTML = `
+        <div class="block-title">Theme</div>
+        <div class="list list-strong inset"><div class="themes">${THEMES.map(([k, c]) => `<button class="theme-dot ${k === theme ? 'on' : ''}" data-theme-pick="${k}" style="--c:${c}" aria-label="${k} theme"></button>`).join('')}</div></div>
         <div class="block-title">Day</div>
         <div class="list list-strong list-dividers inset ilabels"><ul>
           <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Wake up</div><div class="item-input-wrap"><input type="time" name="wake" value="${S.settings.wake}"></div></div></li>
@@ -219,6 +231,10 @@
           <li class="item-content"><div class="item-inner"><div class="item-title">Signed in</div><div class="item-after">${esc(S.user ? S.user.email : '')}</div></div></li>
           ${Store.DEMO ? '' : '<li><a class="item-content item-link no-chevron" data-signout><div class="item-inner"><div class="item-title red">Sign Out</div></div></a></li>'}
         </ul></div><div style="height:30px"></div>`;
+      body.querySelectorAll('[data-theme-pick]').forEach((d) => d.addEventListener('click', () => {
+        Store.setKV('settings', { ...S.settings, theme: d.dataset.themePick });
+        applyTheme(); window.FX.Sound.tap(); render();
+      }));
       body.querySelectorAll('input[type=time]').forEach((inp) => inp.addEventListener('change', () => Store.setKV('settings', { ...S.settings, [inp.name]: inp.value })));
       body.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
         const k = b.dataset.step, v = Math.max(0, S.settings[k] + +b.dataset.d);
@@ -264,6 +280,6 @@
 
   window.UI = {
     $, esc, longDate, shortDate, timeOf, stepFor, stepTitle, dayBlocks, running, DAYS, MONTHS,
-    start, pause, done, startGym, blockMenu, stepMenu, taskEditor, settingsPopup,
+    start, pause, done, startGym, blockMenu, stepMenu, taskEditor, settingsPopup, applyTheme,
   };
 })();

@@ -36,7 +36,38 @@
     soft: () => tone(440, 0, 0.12, 0.05, 'triangle'),
     grade: () => { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, i * 0.09, 0.5 - i * 0.05, 0.1)); },
     pop: () => tone(880, 0, 0.05, 0.08, 'triangle'),
+    better: () => Sound.grade(), worse: () => Sound.soft(),
+    tap: () => tone(1400, 0, 0.025, 0.04, 'triangle'),
+    seg: () => tone(1760, 0, 0.05, 0.05),
   };
+  // Recorded sounds (howler.js) replace the synthesised ones where we have a file.
+  // tap, check, seg: Kenney CC0. win, late (soft), better, worse: made for Crunch (tools/synth_sounds.py).
+  const FILES = {
+    tap: ['sounds/tap.mp3', 0.5], check: ['sounds/check.mp3', 0.7], seg: ['sounds/seg.mp3', 0.45],
+    win: ['sounds/win.mp3', 0.8], soft: ['sounds/late.mp3', 0.6], better: ['sounds/better.mp3', 0.85], worse: ['sounds/worse.mp3', 0.7],
+  };
+  if (window.Howl) {
+    for (const [k, [src, volume]] of Object.entries(FILES)) {
+      const h = new window.Howl({ src: [src], volume, preload: true });
+      Sound[k] = () => h.play();
+    }
+  }
+
+  // ---- haptics on iPhone (ios-haptics: a hidden iOS switch under each tappable thing) ----
+  // The library loads as a module from index.html and sets window.hapticTrigger; we attach it to every
+  // button as it appears. Elsewhere (PC, Android) it does nothing.
+  const HAPTIC = '.act, .btn, .tab-link, .bigcheck, .carry, .theme-dot, .seg-wrap .button, .h-chip, .cel-later';
+  function armHaptics(root) {
+    if (!window.hapticTrigger) return;
+    root.querySelectorAll(HAPTIC).forEach((el) => { if (!el.dataset.hap) { el.dataset.hap = '1'; window.hapticTrigger(el); } });
+  }
+  // every tappable thing gives a tiny click, like iOS keyboard clicks
+  document.addEventListener('pointerdown', (e) => { if (e.target.closest(HAPTIC)) Sound.tap(); }, { passive: true });
+  window.addEventListener('haptics-ready', () => {
+    armHaptics(document);
+    new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) armHaptics(n.parentNode || n); })))
+      .observe(document.body, { childList: true, subtree: true });
+  });
 
   // ---- the flame: number = streak, size/colour = today's combo ----
   const PALETTE = [

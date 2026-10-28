@@ -13,6 +13,7 @@
   let activeTab = 'today';
   function render() {
     if (window.Week && window.Week.isDragging()) return;
+    UI.applyTheme();
     UI.renderToday();
     if (activeTab === 'week') window.Week.render();
     if (activeTab === 'plan') UI.renderPlan();
@@ -38,17 +39,29 @@
       case 'week-today': return window.Week.goToday();
       case 'reveal': return window.Flows.reveal(Store.today(), false);
       case 'night': return window.Flows.night();
-      case 'streak': return app.dialog.alert(`${L.streak(S.days, Store.today())} days in a row at B or better. The flame grows with every task finished on time today.`, 'Streak');
-      case 'finish': {
-        const open = S.blocks.filter((b) => b.date === Store.today() && b.kind === 'task' && !b.doneAt).length;
-        return app.dialog.create({
-          title: 'Finish the day?', text: open ? `${open} task${open > 1 ? 's' : ''} still open. You can carry them over to tomorrow.` : 'Everything is done.',
-          buttons: [{ text: 'Cancel' }, { text: 'Finish', bold: true, onClick: () => window.Flows.finishDay() }],
-        }).open();
-      }
+      case 'streak': return app.dialog.alert(`${L.streak(S.days, Store.today())} days in a row at 75% of your work goal or more. The flame grows with every task finished on time today.`, 'Streak');
+      case 'finish': return finishAsk();
+      case 'more': return moreMenu();
       default:
     }
   });
+  function finishAsk() {
+    const open = S.blocks.filter((b) => b.date === Store.today() && b.kind === 'task' && !b.doneAt).length;
+    app.dialog.create({
+      title: 'Finish the day?', text: open ? `${open} task${open > 1 ? 's' : ''} still open. You can carry them over to tomorrow.` : 'Everything is done.',
+      buttons: [{ text: 'Cancel' }, { text: 'Finish', bold: true, onClick: () => window.Flows.finishDay() }],
+    }).open();
+  }
+  // Today's "More" button: the less frequent actions live here, so the hero stays calm.
+  function moreMenu() {
+    const r = UI.running(), day = S.days[Store.today()] || {};
+    const ic = (n) => `<i class="f7-icons">${n}</i>`;
+    const items = [{ text: 'Add a task', icon: ic('plus'), onClick: () => UI.taskEditor({ date: Store.today() }) }];
+    if (!(r && r.kind === 'gym') && !day.finishedAt) items.push({ text: 'Start gym', icon: ic('bolt_fill'), onClick: () => UI.startGym() });
+    if (!day.finishedAt) items.push({ text: 'Finish the day', icon: ic('moon_fill'), onClick: finishAsk });
+    app.actions.create({ cssClass: 'more-menu', buttons: [items, [{ text: 'Cancel', bold: true }]] }).open();
+  }
+
   // Swipe-to-delete on any task row
   document.addEventListener('swipeout:deleted', (e) => {
     const li = e.target.closest('li[data-id]'); if (li) Store.deleteBlock(li.dataset.id);
@@ -101,6 +114,11 @@
     maybeMorning();
     document.addEventListener('visibilitychange', () => { if (!document.hidden) maybeMorning(); });
   }).catch((e) => {
+    if (e.message === 'missing config') {  // installed before the cloud was set up: say so calmly
+      const el = document.createElement('div'); el.className = 'login';
+      el.innerHTML = `<img src="icons/icon-192.png" alt=""><h1>Almost ready</h1><p>Crunch is installed. Syncing between your iPhone and PC is being set up, so this screen updates by itself. Open the app again in a little while.</p>`;
+      document.body.appendChild(el); return;
+    }
     document.getElementById('today').innerHTML = `<div class="wrap"><p class="red">Could not start: ${UI.esc(e.message)}</p></div>`;
   });
 
@@ -128,7 +146,7 @@
       case 'passed': { // demo: a good day
         window.Flows.finishDay();
         const d = S.days[key];
-        Store.patchDay(key, { grade: 'B', stats: { ...d.stats, score: 0.82, workMin: 445, tasksDone: 7, tasksPlanned: 8, wastedMin: 35, gymMin: 62, avgProd: 0.97, lateUpMin: 5 } });
+        Store.patchDay(key, { grade: 'B', stats: { ...d.stats, score: 0.82, prod: 545 / 480, workMin: 545, tasksDone: 7, tasksPlanned: 8, wastedMin: 35, gymMin: 62, avgProd: 0.97, lateUpMin: 5 } });
         window.Flows.reveal(key, true); break;
       }
       case 'celebrate': setTimeout(() => UI.celebrate(true, -6, 5, { actualMs: 54 * 60000 }), 600); break;

@@ -126,7 +126,7 @@
     const st = L.dayStats(key, S.blocks, S.days, S.settings, n);
     const stats = {
       workMin: st.workMin, gymMin: st.gymMin, wastedMin: st.wastedMin, sleepMin: st.sleepMin, lateUpMin: st.lateUpMin,
-      tasksDone: st.tasksDone, tasksPlanned: st.tasksPlanned, avgProd: st.avgProd, rings: st.rings, score: st.score,
+      tasksDone: st.tasksDone, tasksPlanned: st.tasksPlanned, avgProd: st.avgProd, prod: st.prod, rings: st.rings, score: st.score,
     };
     Store.patchDay(key, { finishedAt: n.toISOString(), grade: st.grade, stats });
     reveal(key, true);
@@ -143,14 +143,17 @@
   }
   function reveal(key, thenNight) {
     const day = S.days[key], st = day.stats, prev = (S.days[L.addDays(key, -1)] || {}).stats;
-    const passed = !['D', 'F'].includes(day.grade);
+    const prodOf = (x) => (x.prod != null ? x.prod : x.workMin / S.settings.workGoalMin);
+    const prod = prodOf(st), prevProd = prev ? prodOf(prev) : null;
+    // "better" compares with yesterday; on the very first day it compares with the 75% streak bar
+    const passed = prevProd == null ? prod >= L.STREAK_MIN : prod >= prevProd;
+    const kept = prod >= L.STREAK_MIN;
     const step = UI.stepFor(key);
     const streakN = L.streak(S.days, key);
     const lines = [
       { ic: 'alarm_fill', label: 'Woke up', to: st.lateUpMin || 0, fmt: () => (day.upAt ? UI.timeOf(day.upAt) : '–'), good: st.lateUpMin != null && st.lateUpMin <= 15 },
-      { ic: 'clock_fill', label: 'Work', to: st.workMin, fmt: (v) => L.fmtDur(v), good: st.workMin >= S.settings.workGoalMin * 0.85, prev: prev && prev.workMin, up: true },
       { ic: 'checkmark_alt', label: 'Tasks done', to: st.tasksDone, fmt: (v) => `${Math.round(v)} of ${st.tasksPlanned}`, good: st.tasksDone >= st.tasksPlanned * 0.8, prev: prev && prev.tasksDone, up: true },
-      { ic: 'speedometer', label: 'Productivity', to: st.avgProd * 100, fmt: (v) => `${Math.round(v)}%`, good: st.avgProd >= 0.9, prev: prev && prev.avgProd * 100, up: true },
+      { ic: 'speedometer', label: 'Task speed', to: (st.avgProd - 1) * 100, fmt: (v) => (Math.round(v) >= 0 ? `${Math.round(v)}% faster` : `${-Math.round(v)}% slower`), good: st.avgProd >= 1, prev: prev && (prev.avgProd - 1) * 100, up: true },
       { ic: 'bolt_fill', label: 'Gym', to: st.gymMin, fmt: (v) => L.fmtDur(v), good: st.gymMin >= 30, prev: prev && prev.gymMin, up: true },
       { ic: 'hourglass', label: 'Wasted', to: st.wastedMin, fmt: (v) => L.fmtDur(v), good: st.wastedMin <= 45, prev: prev && prev.wastedMin, up: false },
       { ic: 'moon_fill', label: 'Slept', to: st.sleepMin || 0, fmt: (v) => (st.sleepMin == null ? '–' : L.fmtDur(v)), good: st.sleepMin >= 420, prev: prev && prev.sleepMin, up: true },
@@ -161,10 +164,11 @@
       const good = l.up ? d > 0 : d < 0;
       return `<span class="mp-d ${good ? 'green' : 'red'}">${d > 0 ? '▲' : '▼'}</span>`;
     };
-    const score = Math.round(st.score * 100);
+    const score = Math.round(prod * 100);
     const R = 74, C = 2 * Math.PI * R;
-    const streakTxt = passed ? `${streakN} day streak` : 'Streak lost';
-    const vsTxt = prev ? (st.score >= prev.score ? 'up from yesterday' : 'down from yesterday') : 'your first graded day';
+    const title = prevProd == null ? (passed ? 'Strong first day' : 'First day done') : passed ? 'Better than yesterday' : 'Worse than yesterday';
+    const vsTxt = prevProd == null ? '' : `${Math.round(prevProd * 100)}% yesterday`;
+    const streakTxt = kept ? `${streakN} day streak` : 'Streak lost';
     const el = show(`<div class="mp ${passed ? 'pass' : 'fail'}">
       <canvas id="confetti"></canvas>
       <div class="fl-top"><span>${UI.longDate(key)}</span><a id="x">${thenNight ? '' : 'Close'}</a></div>
@@ -173,10 +177,10 @@
         <div class="mp-ring">
           <svg viewBox="0 0 168 168" aria-hidden="true"><circle class="mr-track" cx="84" cy="84" r="${R}"/>
             <circle class="mr-fill" id="mrf" cx="84" cy="84" r="${R}" stroke-dasharray="${C}" stroke-dashoffset="${C}"/></svg>
-          <div class="mr-in"><div class="mr-grade" id="mrg">${day.grade}</div><div class="mr-score num"><span id="msv">0</span> / 100</div></div>
+          <div class="mr-in"><div class="mr-grade num" id="mrg"><span id="msv">0</span><small>%</small></div><div class="mr-score num">${L.fmtDur(st.workMin)} of ${L.fmtDur(S.settings.workGoalMin)}</div></div>
         </div>
-        <div class="mp-title" id="mpt">${passed ? 'Day passed' : 'Day failed'}</div>
-        <div class="mp-step" id="mps">${passed ? flameSVG(5, 15) : ''}<span><span class="${passed ? '' : 'red'}">${streakTxt}</span>, ${vsTxt}</span></div>
+        <div class="mp-title" id="mpt">${title}</div>
+        <div class="mp-step" id="mps">${kept ? flameSVG(5, 15) : ''}<span><span class="${kept ? '' : 'red'}">${streakTxt}</span>${vsTxt ? `, ${vsTxt}` : ''}</span></div>
       </div>
       <div class="mp-lines">${lines.map((l, i) => `<div class="mp-line" id="ml${i}">
         <span class="mp-ic ${l.good ? 'good' : 'bad'}"><i class="f7-icons">${l.ic}</i></span>
@@ -187,12 +191,13 @@
     // choreography: the ring fills while the score counts up, the grade pops, then each line ticks in
     later(() => {
       el.querySelector('#mrf').style.strokeDashoffset = C * (1 - Math.min(1, score / 100));
+      el.querySelector('#mrg').classList.add('on');
       countUp(el.querySelector('#msv'), score, (v) => `${Math.round(v)}`, 1100);
       Sound.tick();
     }, 250);
     later(() => {
-      el.querySelector('#mrg').classList.add('on'); el.querySelector('#mpt').classList.add('on'); el.querySelector('#mps').classList.add('on');
-      passed ? Sound.grade() : Sound.soft();
+      el.querySelector('#mrg').classList.add('bump'); el.querySelector('#mpt').classList.add('on'); el.querySelector('#mps').classList.add('on');
+      passed ? Sound.better() : Sound.worse();
       if (passed) window.FX.confetti(el.querySelector('#confetti'), 90);
     }, 1450);
     const t0 = 2000;

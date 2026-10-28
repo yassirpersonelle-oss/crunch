@@ -57,7 +57,7 @@
         stats: {
           workMin: [400, 330, 500, 420, 250, 410, 520][7 - i], wastedMin: [80, 150, 30, 70, 210, 60, 25][7 - i],
           gymMin: [60, 0, 65, 0, 0, 55, 70][7 - i], sleepMin: [470, 430, 480, 455, 520, 440, 475][7 - i],
-          score: { A: 0.92, B: 0.8, C: 0.66, D: 0.5 }[g], tasksDone: 6, tasksPlanned: 8, avgProd: 0.86,
+          score: { A: 0.92, B: 0.8, C: 0.66, D: 0.5 }[g], prod: [400, 330, 500, 420, 250, 410, 520][7 - i] / 480, tasksDone: 6, tasksPlanned: 8, avgProd: 0.86,
         },
       };
     }

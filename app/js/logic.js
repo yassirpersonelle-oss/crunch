@@ -105,9 +105,11 @@
     const discipline = (upScore + bedScore + wasteScore) / 3;
 
     const score = 0.4 * work + 0.35 * taskRing + 0.25 * discipline;
+    // productivity = work hours vs the daily goal (can pass 100%)
+    const prod = workMin / settings.workGoalMin;
     return {
       awakeMin, workMin, gymMin, routineMin, wastedMin, sleepMin, lateUpMin, lateBedMin,
-      tasksDone: done.length, tasksPlanned: tasks.length, avgProd,
+      tasksDone: done.length, tasksPlanned: tasks.length, avgProd, prod,
       rings: { work, tasks: taskRing, discipline }, score, grade: grade(score),
     };
   }
@@ -120,12 +122,15 @@
     return 'F';
   }
   const goodGrade = (g) => g === 'A' || g === 'B';
+  // A day keeps the streak when productivity (work vs goal) reached 75%.
+  const STREAK_MIN = 0.75;
+  const dayProd = (d) => (d && d.stats && d.stats.prod != null ? d.stats.prod : null);
 
   // Streak = finished days in a row at B or better, counted back from today (if finished) or yesterday.
   function streak(days, today) {
     let key = days[today] && days[today].finishedAt ? today : addDays(today, -1);
     let n = 0;
-    while (days[key] && days[key].finishedAt && goodGrade(days[key].grade)) { n++; key = addDays(key, -1); }
+    while (days[key] && days[key].finishedAt && dayProd(days[key]) >= STREAK_MIN) { n++; key = addDays(key, -1); }
     return n;
   }
 
@@ -174,7 +179,7 @@
   const api = {
     MIN, pad, dateKey, parseDate, addDays, hm, hmStr, at, minOfDay, fmtDur, fmtClock, fmtTimer,
     hoursLeft, dayNumber, actualMs, isRunning, isDone, overMs, onTime, productivity, combo,
-    dayStats, grade, goodGrade, streak, ripple, pushBack,
+    dayStats, grade, goodGrade, streak, dayProd, STREAK_MIN, ripple, pushBack,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;
