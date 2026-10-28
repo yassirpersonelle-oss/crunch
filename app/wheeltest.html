@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Crunch wheel test</title>
+<style>
+  :root { color-scheme: dark; --bg: #000; --card: #1c1c1e; --line: #38383a; --label: #fff; --label2: #8e8e93; --accent: #30d158; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--label); font: 17px/1.35 -apple-system, "Segoe UI Variable", system-ui, sans-serif;
+    padding: calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 40px); }
+  h1 { font-size: 30px; margin: 4px 0 6px; }
+  .intro { color: var(--label2); font-size: 15px; margin: 0 0 22px; }
+  .card { background: var(--card); border-radius: 14px; padding: 16px; margin-bottom: 18px; }
+  .card h2 { font-size: 17px; margin: 0 0 4px; display: flex; gap: 10px; align-items: baseline; }
+  .card h2 b { color: var(--accent); }
+  .card p { color: var(--label2); font-size: 14px; margin: 0 0 14px; }
+  input[type=time], select { width: 100%; height: 48px; border-radius: 10px; border: 0; background: #2c2c2e; color: #fff; font: inherit; font-size: 20px; padding: 0 14px; }
+  .wheel { position: relative; height: 220px; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; overscroll-behavior: contain;
+    -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+  .wheel::-webkit-scrollbar { display: none; }
+  .wheel div { height: 44px; display: flex; align-items: center; justify-content: center; scroll-snap-align: center; font-size: 22px; font-variant-numeric: tabular-nums; color: var(--label2); }
+  .wheel div.on { color: #fff; }
+  .wheel .pad { scroll-snap-align: none; }
+  .wrap { position: relative; }
+  .wrap::before { content: ""; position: absolute; left: 0; right: 0; top: 88px; height: 44px; border-radius: 10px; background: #2c2c2e; pointer-events: none; }
+  .val { color: var(--label2); font-size: 14px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  button { width: 100%; height: 50px; border: 0; border-radius: 12px; background: var(--accent); color: #000; font: inherit; font-weight: 600; }
+  .note { color: var(--label2); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>Wheel test</h1>
+<p class="intro">Spin each wheel on your iPhone and tell me which letters feel like the Alarm app: a click sound and a tiny vibration on every step. Turn the silent switch off so you hear the sound.</p>
+
+<div class="card">
+  <h2><b>0</b> Vibration check</h2>
+  <p>Tap this first. If you feel nothing, vibration is off in Settings → Sounds &amp; Haptics, and the rest of the test can't work.</p>
+  <button id="tap">Tap me</button>
+</div>
+
+<div class="card">
+  <h2><b>A</b> Apple's time wheel</h2>
+  <p>Tap the time, then spin the hours and minutes.</p>
+  <input type="time" id="a" value="14:30">
+</div>
+
+<div class="card">
+  <h2><b>B</b> Apple's list wheel</h2>
+  <p>Tap it and spin. On some iOS versions this opens a menu instead of a wheel: tell me which you get.</p>
+  <select id="b"></select>
+</div>
+
+<div class="card">
+  <h2><b>C</b> Crunch wheel, click + vibration on every step</h2>
+  <p>A sound on every step, and an attempt at a vibration on every step.</p>
+  <div class="wrap"><div class="wheel" id="c"></div></div>
+  <div class="val" id="cv"></div>
+</div>
+
+<div class="card">
+  <h2><b>D</b> Crunch wheel, click on every step + one vibration when you let go</h2>
+  <p>Same wheel. It vibrates once when your finger lifts.</p>
+  <div class="wrap"><div class="wheel" id="d"></div></div>
+  <div class="val" id="dv"></div>
+</div>
+
+<p class="note">Reply with something like "A and C felt right, B was a menu".</p>
+
+<script>
+  // --- sound: one short click, decoded once, played through WebAudio for zero delay ---
+  let ctx = null, clickBuf = null;
+  async function unlock() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const r = await fetch('sounds/tap.mp3'); clickBuf = await ctx.decodeAudioData(await r.arrayBuffer());
+  }
+  function click() {
+    if (!ctx || !clickBuf) return;
+    const s = ctx.createBufferSource(), g = ctx.createGain(); g.gain.value = 0.55;
+    s.buffer = clickBuf; s.connect(g).connect(ctx.destination); s.start();
+  }
+  document.addEventListener('touchstart', unlock, { passive: true, once: true });
+  document.addEventListener('pointerdown', unlock, { once: true });
+
+  // --- haptic: iOS 18+ ticks when a switch is toggled; clicking its label from code may do it too ---
+  const hl = document.createElement('label'), hi = document.createElement('input');
+  hi.type = 'checkbox'; hi.setAttribute('switch', ''); hi.id = 'hsw';
+  hl.htmlFor = 'hsw'; hl.style.cssText = 'position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;left:-9px';
+  hl.appendChild(hi); document.body.appendChild(hl);
+  const haptic = () => { try { hl.click(); } catch (e) {} if (navigator.vibrate) navigator.vibrate(8); };
+
+  document.getElementById('tap').addEventListener('click', () => { haptic(); click(); });
+
+  // --- B: native select ---
+  const b = document.getElementById('b');
+  for (let m = 5; m <= 240; m += 5) b.add(new Option(m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`, m));
+  b.value = 45;
+
+  // --- C / D: scroll-snap wheels ---
+  function wheel(id, onStep, onRelease) {
+    const el = document.getElementById(id), out = document.getElementById(id + 'v');
+    const items = []; for (let m = 5; m <= 240; m += 5) items.push(m);
+    el.innerHTML = '<div class="pad"></div><div class="pad"></div>' + items.map((m) => `<div>${m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0')}</div>`).join('') + '<div class="pad"></div><div class="pad"></div>';
+    const rows = [...el.querySelectorAll('div:not(.pad)')];
+    let last = -1;
+    const sync = () => {
+      const i = Math.max(0, Math.min(rows.length - 1, Math.round(el.scrollTop / 44)));
+      if (i !== last) { if (last !== -1) onStep(); rows[last] && rows[last].classList.remove('on'); rows[i].classList.add('on'); last = i; out.textContent = 'Picked: ' + rows[i].textContent; }
+    };
+    el.scrollTop = 8 * 44; sync();
+    el.addEventListener('scroll', sync, { passive: true });
+    if (onRelease) el.addEventListener('touchend', onRelease, { passive: true });
+  }
+  wheel('c', () => { click(); haptic(); });
+  wheel('d', () => click(), () => setTimeout(haptic, 120));
+</script>
+</body>
+</html>

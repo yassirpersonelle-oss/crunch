@@ -131,8 +131,11 @@ def status(data, now):
     st = data['settings']
     today = now.date().isoformat()
     day = data['days'].get(today, {})
-    work_h, _ = hours_left(now, st)
-    segs = [(f'{int(work_h)} h', WHITE)]
+    # hours left today (until bedtime), ticking every second like the phone's hero
+    day0 = datetime.combine(now.date(), datetime.min.time())
+    end = min(day0 + timedelta(minutes=hm(st['bed'])), datetime.fromisoformat(st['releaseAt']))
+    left = max(0, int((end - max(now, day0 + timedelta(minutes=hm(st['wake'])))).total_seconds()))
+    segs = [(f'{left // 3600}:{left // 60 % 60:02d}:{left % 60:02d} left', WHITE)]
     run = next((b for b in data['blocks'] if b.get('runningSince')), None)
     mins = now.hour * 60 + now.minute
     if day.get('bedAt') or (not day.get('upAt') and mins < hm(st['wake'])):

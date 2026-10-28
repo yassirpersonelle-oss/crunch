@@ -6,7 +6,8 @@
   const icon = (name) => `<i class="f7-icons">${name}</i>`;
   const hoursOf = (ms) => Math.floor(ms / 3600000);
   // "9 h 20" with small unit letters, for the Today hero
-  const heroDur = (min) => { min = Math.max(0, Math.floor(min)); return `${Math.floor(min / 60)}<span>h</span> ${L.pad(min % 60)}<span>m</span>`; };
+  // hours left today, ticking every second for pressure: 7h 41m 23s
+  const heroDur = (min) => { const s = Math.max(0, Math.floor(min * 60)); return `${Math.floor(s / 3600)}<span>h</span> ${L.pad(Math.floor(s / 60) % 60)}<span>m</span> ${L.pad(s % 60)}<span>s</span>`; };
 
   // ---------- rows (Today, Week "anytime", flows) ----------
   function rowHTML(b, n) {
