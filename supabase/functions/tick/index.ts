@@ -78,7 +78,8 @@ Deno.serve(async (req) => {
     // 5) not up yet
     if (!day.upAt && w.min >= wake + 15 && w.min < wake + 120) out.push({ tag: `wake:${w.date}`, title: 'Are you up?', body: 'Tap to start your morning routine.' });
     // 6) the day was finished (on any device)
-    if (day.finishedAt && day.grade) out.push({ tag: `fin:${w.date}`, title: `Your day: ${day.grade}`, body: 'Tap to see your results.' });
+    const prod = day.stats?.prod;
+    if (day.finishedAt && prod != null) out.push({ tag: `fin:${w.date}`, title: `Your day: ${Math.round(prod * 100)}% productive`, body: 'Tap to see your results.' });
 
     for (const n of out) {
       const { error } = await sb.from('notif_log').insert({ user_id: uid, tag: n.tag });

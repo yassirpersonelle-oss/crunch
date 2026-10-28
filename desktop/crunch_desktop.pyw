@@ -74,7 +74,7 @@ def demo_data():
     return {
         'settings': {'wake': '07:00', 'bed': '23:00', 'releaseAt': '2026-11-14T18:00', 'startDate': '2026-10-28'},
         'steps': [{'n': 2, 'title': 'Animations', 'start': t, 'end': t}],
-        'days': {y: {'finishedAt': 'x', 'grade': 'B', 'bedAt': (now - timedelta(hours=14)).isoformat()},
+        'days': {y: {'finishedAt': 'x', 'stats': {'prod': 0.92}, 'bedAt': (now - timedelta(hours=14)).isoformat()},
                  t: {'upAt': (now - timedelta(hours=6)).isoformat()}},
         'blocks': [{'id': 'a', 'date': t, 'kind': 'task', 'title': 'Female walk set', 'expectedMin': 60,
                     'actualMs': 40 * 60000, 'runningSince': now.isoformat()}],
@@ -100,10 +100,21 @@ def actual_ms(b, now):
     return (b.get('actualMs') or 0) + ((now - run).total_seconds() * 1000 if run else 0)
 
 
+def prod(d):
+    # productivity of a finished day (worked / goal), the same number the app shows; None before build 4
+    p = ((d or {}).get('stats') or {}).get('prod')
+    return None if p is None else p
+
+
+def pct(d):
+    p = prod(d)
+    return '' if p is None else f'{round(p * 100)}%'
+
+
 def streak(days, today):
     k = today if days.get(today, {}).get('finishedAt') else (datetime.fromisoformat(today) - timedelta(days=1)).date().isoformat()
     n = 0
-    while days.get(k, {}).get('finishedAt') and days[k].get('grade') in ('A', 'B'):
+    while days.get(k, {}).get('finishedAt') and (prod(days[k]) or 0) >= 0.75:  # L.STREAK_MIN in app/js/logic.js
         n += 1
         k = (datetime.fromisoformat(k) - timedelta(days=1)).date().isoformat()
     return n
@@ -127,7 +138,7 @@ def status(data, now):
     if day.get('bedAt') or (not day.get('upAt') and mins < hm(st['wake'])):
         segs.append(('Sleeping', GREY))
     elif day.get('finishedAt'):
-        segs.append((f'Day done · {day.get("grade", "")}', GREY))
+        segs.append((f'Day done · {pct(day)}'.rstrip(' ·'), GREY))
     elif run:
         act, exp = actual_ms(run, now), run['expectedMin'] * 60000
         col = RED if act > exp else (GREEN if run.get('kind') == 'gym' else ORANGE)
@@ -214,8 +225,8 @@ def draw_wallpaper(data, now, out_path=None):
         d.text((x0 + 6 * s, yy), f'TODAY · STEP {step["n"]}', font=font(int(24 * s)), fill=(255, 159, 10))
         d.text((x0 + 6 * s, yy + 34 * s), step['title'], font=font(int(56 * s)), fill=(255, 255, 255))
         yy += 120 * s
-    if y_day.get('grade'):
-        d.text((x0 + 6 * s, yy), f'Yesterday: {y_day["grade"]}  ·  streak {streak(data["days"], today)}',
+    if pct(y_day):
+        d.text((x0 + 6 * s, yy), f'Yesterday: {pct(y_day)}  ·  streak {streak(data["days"], today)}',
                font=font(int(30 * s), False), fill=(200, 200, 205))
     out = out_path or os.path.join(DATA, 'wallpaper.png')
     img.save(out)
