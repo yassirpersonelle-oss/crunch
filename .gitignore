@@ -1,0 +1,6 @@
+node_modules/
+supabase/.secrets.env
+supabase/.temp/
+tools/f7.css
+*.log
+__pycache__/

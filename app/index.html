@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Crunch">
+  <meta name="theme-color" content="#000000">
+  <title>Crunch</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7@8.3.4/framework7-bundle.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7-icons@5.0.5/css/framework7-icons.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div class="views tabs safe-areas">
+      <div class="toolbar toolbar-bottom tabbar tabbar-icons">
+        <div class="toolbar-inner">
+          <a href="#view-today" class="tab-link tab-link-active"><i class="icon f7-icons">sun_max_fill</i><span class="tabbar-label">Today</span></a>
+          <a href="#view-week" class="tab-link"><i class="icon f7-icons">calendar</i><span class="tabbar-label">Week</span></a>
+          <a href="#view-plan" class="tab-link"><i class="icon f7-icons">flag_fill</i><span class="tabbar-label">Plan</span></a>
+          <a href="#view-history" class="tab-link"><i class="icon f7-icons">chart_bar_fill</i><span class="tabbar-label">History</span></a>
+        </div>
+      </div>
+
+      <div id="view-today" class="view view-main view-init tab tab-active" data-name="today">
+        <div class="page" data-name="today">
+          <div class="navbar navbar-large navbar-transparent">
+            <div class="navbar-bg"></div>
+            <div class="navbar-inner">
+              <div class="left"><a class="link icon-only" data-action="settings"><i class="icon f7-icons">gear_alt</i></a></div>
+              <div class="title sliding">Today</div>
+              <div class="right"><a class="link streak" data-action="streak"></a></div>
+              <div class="title-large"><div class="title-large-text">Today</div></div>
+            </div>
+          </div>
+          <div class="page-content"><div id="today"></div></div>
+        </div>
+      </div>
+
+      <div id="view-week" class="view view-init tab" data-name="week">
+        <div class="page" data-name="week">
+          <div class="navbar">
+            <div class="navbar-bg"></div>
+            <div class="navbar-inner">
+              <div class="left"><a class="link" data-action="week-today">Today</a></div>
+              <div class="title" id="week-title">October</div>
+              <div class="right"><a class="link icon-only" data-action="new-task"><i class="icon f7-icons">plus</i></a></div>
+            </div>
+            <div class="subnavbar"><div class="subnavbar-inner" id="week-strip"></div></div>
+          </div>
+          <div class="page-content" id="week-scroll"><div id="week"></div></div>
+        </div>
+      </div>
+
+      <div id="view-plan" class="view view-init tab" data-name="plan">
+        <div class="page" data-name="plan">
+          <div class="navbar navbar-large navbar-transparent">
+            <div class="navbar-bg"></div>
+            <div class="navbar-inner">
+              <div class="title sliding">Plan</div>
+              <div class="title-large"><div class="title-large-text">Plan</div></div>
+            </div>
+          </div>
+          <div class="page-content"><div id="plan"></div></div>
+        </div>
+      </div>
+
+      <div id="view-history" class="view view-init tab" data-name="history">
+        <div class="page" data-name="history">
+          <div class="navbar navbar-large navbar-transparent">
+            <div class="navbar-bg"></div>
+            <div class="navbar-inner">
+              <div class="title sliding">History</div>
+              <div class="title-large"><div class="title-large-text">History</div></div>
+            </div>
+          </div>
+          <div class="page-content"><div id="history"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="flow" hidden></div>
+  <div id="celebrate" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/framework7@8.3.4/framework7-bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="js/logic.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/fx.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/week.js"></script>
+  <script src="js/flows.js"></script>
+  <script src="js/push.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
