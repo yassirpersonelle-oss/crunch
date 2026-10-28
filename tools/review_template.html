@@ -1,0 +1,83 @@
+<title>Crunch Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a dark contact sheet. Phone frames in rows per flow, one caption each; desktop pieces at the end. */
+:root {
+  color-scheme: dark;
+  --bg: #0b0a09;        /* warm near-black, a hint of the orange */
+  --panel: #171513;
+  --line: #2a2622;
+  --ink: #f4efe9;
+  --ink2: #a39a90;
+  --accent: #ff9f0a;    /* the app's own orange */
+  --display: "Figtree", -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--display); margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 40px 80px; display: flex; flex-direction: column; gap: 56px; }
+.top { display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: clamp(34px, 6vw, 52px); font-weight: 800; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+.top p { color: var(--ink2); font-size: 17px; line-height: 1.55; margin: 0; }
+.how { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.how div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-size: 15px; line-height: 1.45; color: var(--ink2); }
+.how b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
+section { display: flex; flex-direction: column; gap: 18px; }
+section header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+h2 { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+section header p { margin: 0; color: var(--ink2); font-size: 15px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 28px 22px; }
+.shot { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.shot img { width: 100%; height: auto; aspect-ratio: 414 / 896; border-radius: 26px; border: 1px solid var(--line); display: block; background: #000; }
+figcaption { display: flex; flex-direction: column; gap: 3px; font-size: 14px; line-height: 1.4; color: var(--ink2); }
+figcaption b { color: var(--ink); font-size: 15px; }
+.flames { display: flex; flex-wrap: wrap; gap: 10px; }
+.fl { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: 92px; height: 104px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.fl span { font-family: var(--mono); font-size: 11px; color: var(--ink2); }
+.flame { overflow: visible; }
+.flame .flame-body { transform-origin: 50% 95%; transform: scale(var(--fs)); animation: flicker var(--fspeed) ease-in-out infinite alternate; }
+.flame .flame-inner { transform-origin: 50% 90%; animation: flicker2 calc(var(--fspeed) * .7) ease-in-out infinite alternate; }
+@keyframes flicker { 0% { transform: scale(var(--fs)) skewX(-2deg) scaleY(.97); } 50% { transform: scale(var(--fs)) skewX(2deg) scaleY(1.03); } 100% { transform: scale(var(--fs)) skewX(-1deg) scaleY(1); } }
+@keyframes flicker2 { 0% { transform: scaleY(.92) translateY(1px); } 100% { transform: scaleY(1.06); } }
+.flame.lvl7 { filter: drop-shadow(0 0 4px rgba(100,210,255,.7)); }
+@media (prefers-reduced-motion: reduce) { .flame .flame-body, .flame .flame-inner { animation: none; } }
+.pc { display: flex; flex-direction: column; gap: 14px; }
+.pc img { max-width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.pc .cap { background: #2b2b2b; border-radius: 10px; padding: 10px; overflow-x: auto; }
+.pc .cap img { border: 0; border-radius: 0; max-width: none; width: 800px; }
+.note { font-size: 15px; color: var(--ink2); line-height: 1.5; max-width: 68ch; margin: 0; }
+.note code { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <span class="eyebrow">Build 2 · redesign · demo data</span>
+    <h1>Crunch Review</h1>
+    <p>The redesign after your feedback: one hero per screen, a half ring instead of full rings, round buttons, fewer boxes, full-screen celebrations and a game-style end of day. Shot at iPhone 11 size with a fake status bar so you can judge the top spacing. Leave a comment on anything that still feels off.</p>
+  </div>
+  <div class="how">
+    <div><b>Try it yourself</b>The same demo runs on your phone once the app is online. Nothing you tap there is saved to your real data.</div>
+    <div><b>Fonts on PC vs iPhone</b>These shots use the Windows font. On your iPhone it uses Apple's own system font, so text looks a little tighter.</div>
+    <div><b>Blur</b>Bars and pop-ups get the frosted iOS blur on the iPhone; the screenshot browser can't draw it.</div>
+  </div>
+
+  {{SECTIONS}}
+
+  <section>
+    <header><h2>The flame</h2><p>The number is your streak. The flame grows with each task finished on time today.</p></header>
+    <div class="flames">{{FLAMES}}</div>
+    <p class="note">These are my own animated flames (they flicker live on this page). If you'd rather have a Duolingo-style cartoon flame, I can pull 2–3 free animated ones from LottieFiles for you to compare.</p>
+  </section>
+
+  <section>
+    <header><h2>On your PC</h2><p>Always on top, draggable, click to open the app. Right-click for the menu.</p></header>
+    <div class="pc">
+      <div class="cap"><img src="{{CAPSULE}}" alt="The capsule bar at the top of the screen" width="800" height="50"></div>
+      <img src="{{WALL}}" alt="Wallpaper with the hours left drawn on it" width="1280" height="720">
+      <p class="note">The wallpaper keeps your own image and redraws the numbers every 5 minutes. Right-click the capsule → "Wallpaper on/off" puts your original back.</p>
+    </div>
+  </section>
+</div>

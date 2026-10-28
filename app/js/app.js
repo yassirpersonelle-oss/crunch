@@ -2,6 +2,7 @@
 (function () {
   const L = window.Logic, Store = window.Store, S = Store.state, UI = window.UI;
   const params = new URLSearchParams(location.search);
+  if (params.has('sim')) document.documentElement.classList.add('sim');
 
   const app = new Framework7({
     el: '#app', theme: 'ios', darkMode: true, colors: { primary: '#ff9f0a' },
@@ -124,8 +125,14 @@
       case 'tomorrow': window.Flows.planTomorrow(); break;
       case 'night': window.Flows.bed(); break;
       case 'reveal': window.Flows.finishDay(); break;
-      case 'celebrate': setTimeout(() => UI.celebrate(true, -6, 5), 1500); break;
-      case 'overcel': setTimeout(() => UI.celebrate(false, 12, 0), 1500); break;
+      case 'passed': { // demo: a good day
+        window.Flows.finishDay();
+        const d = S.days[key];
+        Store.patchDay(key, { grade: 'B', stats: { ...d.stats, score: 0.82, workMin: 445, tasksDone: 7, tasksPlanned: 8, wastedMin: 35, gymMin: 62, avgProd: 0.97, lateUpMin: 5 } });
+        window.Flows.reveal(key, true); break;
+      }
+      case 'celebrate': setTimeout(() => UI.celebrate(true, -6, 5, { actualMs: 54 * 60000 }), 600); break;
+      case 'overcel': setTimeout(() => UI.celebrate(false, 12, 0, { actualMs: 72 * 60000 }), 600); break;
       case 'menu': UI.blockMenu(S.blocks.find((b) => b.plannedStart === '14:00')); break;
       default:
     }

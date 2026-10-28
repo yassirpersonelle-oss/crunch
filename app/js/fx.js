@@ -59,5 +59,28 @@
           d="M16.4 18.6c.8 3.6 5.6 5.8 5.6 10.4 0 4.6-2.8 7.4-6 7.4s-6-2.6-5.6-6.6c.3-2.8 2.4-4.2 3-6.6 1.4 1.2 1.8 2.6 1.8 3.8 1.4-2 1.8-5.2 1.2-8.4Z"/>
       </g></svg>`;
   }
-  window.FX = { Sound, flameSVG };
+  // Confetti burst on a canvas that fills its parent.
+  function confetti(canvas, count = 140) {
+    if (!canvas || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const g = canvas.getContext('2d'); g.scale(dpr, dpr);
+    const colors = ['#ff9f0a', '#ffd60a', '#30d158', '#64d2ff', '#ff375f', '#bf5af2'];
+    const parts = Array.from({ length: count }, () => ({
+      x: W / 2 + (Math.random() - 0.5) * 60, y: H * 0.32, vx: (Math.random() - 0.5) * 13, vy: -Math.random() * 15 - 5,
+      r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4, w: 6 + Math.random() * 6, h: 3 + Math.random() * 4,
+      c: colors[(Math.random() * colors.length) | 0],
+    }));
+    const t0 = performance.now();
+    (function frame(t) {
+      const age = (t - t0) / 1000; g.clearRect(0, 0, W, H);
+      for (const p of parts) {
+        p.vy += 0.42; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+        g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, age - 1.8)); g.translate(p.x, p.y); g.rotate(p.r);
+        g.fillStyle = p.c; g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.r * 2))); g.restore();
+      }
+      if (age < 2.9 && canvas.isConnected) requestAnimationFrame(frame); else g.clearRect(0, 0, W, H);
+    })(t0);
+  }
+  window.FX = { Sound, flameSVG, confetti };
 })();

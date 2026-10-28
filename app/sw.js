@@ -1,6 +1,6 @@
 // Crunch service worker: offline shell + push notifications.
-const CACHE = 'crunch-v1';
-const SHELL = ['./', 'index.html', 'css/app.css', 'config.js', 'js/logic.js', 'js/store.js', 'js/fx.js', 'js/ui.js',
+const CACHE = 'crunch-v2';
+const SHELL = ['./', 'index.html', 'css/app.css', 'css/v2.css', 'config.js', 'js/logic.js', 'js/store.js', 'js/fx.js', 'js/ui.js', 'js/home.js',
   'js/week.js', 'js/flows.js', 'js/push.js', 'js/app.js', 'manifest.json', 'icons/icon-192.png'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });

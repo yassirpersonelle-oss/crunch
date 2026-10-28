@@ -6,13 +6,13 @@ const fs = require('fs');
 
 const OUT = process.argv[2];
 const ONLY = process.argv[3];
-const BASE = 'http://127.0.0.1:8791/index.html?demo=1&reset&at=2026-10-28T13:40';
+const BASE = 'http://127.0.0.1:8791/index.html?demo=1&reset&sim=1&at=2026-10-28T13:40';
 const SHOTS = [
   { name: '01-today', q: '', wait: 1500 },
   { name: '02-today-over', q: '&demo=over', wait: 1500 },
   { name: '03-today-scrolled', q: '', wait: 1500, run: () => { document.querySelector('#view-today .page-content').scrollTop = 520; } },
-  { name: '04-celebrate', q: '&screen=celebrate', wait: 1900 },
-  { name: '05-overrun-toast', q: '&screen=overcel', wait: 1900 },
+  { name: '04-celebrate', q: '&screen=celebrate', wait: 2000 },
+  { name: '05-overrun-toast', q: '&screen=overcel', wait: 2000 },
   { name: '06-menu', q: '&screen=menu', wait: 900 },
   { name: '07-new-task', q: '&screen=task', wait: 1000 },
   { name: '08-edit-task', q: '&screen=edit', wait: 1000, run: () => { document.querySelector('[data-toggle="dur"]').click(); } },
@@ -24,8 +24,9 @@ const SHOTS = [
   { name: '14-morning', q: '&demo=fresh&at=2026-10-28T07:24&screen=morning', wait: 1000 },
   { name: '15-routine', q: '&screen=routine', wait: 900 },
   { name: '16-routine-timed', q: '&screen=routine', wait: 900, run: () => { for (let i = 0; i < 3; i++) document.querySelector('#skip').click(); } , after: 900 },
-  { name: '17-reveal', q: '&at=2026-10-28T22:40&screen=reveal', wait: 9500 },
-  { name: '18-reveal-mid', q: '&at=2026-10-28T22:40&screen=reveal', wait: 2600 },
+  { name: '17-reveal', q: '&at=2026-10-28T22:40&screen=reveal', wait: 7000 },
+  { name: '17b-passed', q: '&at=2026-10-28T22:40&screen=passed', wait: 7000 },
+  { name: '18-reveal-mid', q: '&at=2026-10-28T22:40&screen=reveal', wait: 2300 },
   { name: '19-tomorrow', q: '&at=2026-10-28T22:50&screen=tomorrow', wait: 1000 },
   { name: '20-night', q: '&at=2026-10-28T22:55&screen=night', wait: 900 },
   { name: '21-overview', q: '&demo=fresh&at=2026-10-28T07:50&screen=overview', wait: 1000 },

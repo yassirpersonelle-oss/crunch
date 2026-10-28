@@ -14,7 +14,9 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7@8.3.4/framework7-bundle.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7-icons@5.0.5/css/framework7-icons.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&display=swap">
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/v2.css">
 </head>
 <body>
   <div id="app">
@@ -30,13 +32,12 @@
 
       <div id="view-today" class="view view-main view-init tab tab-active" data-name="today">
         <div class="page" data-name="today">
-          <div class="navbar navbar-large navbar-transparent">
+          <div class="navbar navbar-transparent home-bar">
             <div class="navbar-bg"></div>
             <div class="navbar-inner">
               <div class="left"><a class="link icon-only" data-action="settings"><i class="icon f7-icons">gear_alt</i></a></div>
-              <div class="title sliding">Today</div>
+              <div class="title"></div>
               <div class="right"><a class="link streak" data-action="streak"></a></div>
-              <div class="title-large"><div class="title-large-text">Today</div></div>
             </div>
           </div>
           <div class="page-content"><div id="today"></div></div>
@@ -95,6 +96,7 @@
   <script src="js/store.js"></script>
   <script src="js/fx.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/home.js"></script>
   <script src="js/week.js"></script>
   <script src="js/flows.js"></script>
   <script src="js/push.js"></script>

@@ -131,59 +131,73 @@
     reveal(key, true);
   }
 
+  // Video-game style "Day passed / Day failed" screen.
+  function countUp(el, to, fmt, ms = 700) {
+    const t0 = performance.now();
+    (function f(t) {
+      const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = fmt(to * e);
+      if (k < 1) requestAnimationFrame(f);
+    })(t0);
+  }
   function reveal(key, thenNight) {
     const day = S.days[key], st = day.stats, prev = (S.days[L.addDays(key, -1)] || {}).stats;
-    const C = (r) => 2 * Math.PI * r;
-    const ring = (r, color, p, id) => `<circle class="bgc" cx="105" cy="105" r="${r}" stroke="${color}"/>
-      <circle class="fg" id="${id}" cx="105" cy="105" r="${r}" stroke="${color}" stroke-dasharray="${C(r)}" stroke-dashoffset="${C(r)}" data-p="${Math.min(1, p)}"/>`;
-    const delta = (cur, old, goodUp, fmt) => {
-      if (old == null || cur == null) return '';
-      const d = cur - old; if (Math.abs(d) < 0.5) return '<span class="rv-d muted">=</span>';
-      const good = goodUp ? d > 0 : d < 0;
-      return `<span class="rv-d ${good ? 'green' : 'red'}">${d > 0 ? '▲' : '▼'}${fmt(Math.abs(d))}</span>`;
-    };
-    const mins = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${L.pad(Math.round(m % 60))}` : `${Math.round(m)}m`);
-    const up = day.upAt ? UI.timeOf(day.upAt) : '–';
-    const rows = [
-      { ok: st.lateUpMin != null && st.lateUpMin <= 15, label: 'Woke up', val: up, d: delta(st.lateUpMin, prev && prev.lateUpMin, false, mins) },
-      { ok: st.tasksDone >= st.tasksPlanned * 0.8, meh: st.tasksDone >= st.tasksPlanned * 0.5, label: 'Tasks done', val: `${st.tasksDone} / ${st.tasksPlanned}`, d: delta(st.tasksDone, prev && prev.tasksDone, true, (x) => x) },
-      { ok: st.avgProd >= 0.95, meh: st.avgProd >= 0.75, label: 'Productivity', val: `${Math.round(st.avgProd * 100)}%`, d: delta(st.avgProd * 100, prev && prev.avgProd * 100, true, (x) => `${Math.round(x)}`) },
-      { ok: st.workMin >= S.settings.workGoalMin, meh: st.workMin >= S.settings.workGoalMin * 0.7, label: 'Work', val: L.fmtDur(st.workMin), d: delta(st.workMin, prev && prev.workMin, true, mins) },
-      { ok: st.gymMin >= 30, label: 'Gym', val: L.fmtDur(st.gymMin), d: delta(st.gymMin, prev && prev.gymMin, true, mins) },
-      { ok: st.wastedMin <= 30, meh: st.wastedMin <= 90, label: 'Wasted', val: L.fmtDur(st.wastedMin), d: delta(st.wastedMin, prev && prev.wastedMin, false, mins) },
-      { ok: st.sleepMin != null && st.sleepMin >= 420, meh: st.sleepMin >= 360, label: 'Slept', val: st.sleepMin == null ? '–' : L.fmtDur(st.sleepMin), d: delta(st.sleepMin, prev && prev.sleepMin, true, mins) },
-    ];
-    const better = prev ? st.score >= prev.score : null;
+    const passed = !['D', 'F'].includes(day.grade);
+    const step = UI.stepFor(key);
     const streakN = L.streak(S.days, key);
-    const el = show(`
+    const lines = [
+      { ic: 'alarm_fill', label: 'Woke up', to: st.lateUpMin || 0, fmt: () => (day.upAt ? UI.timeOf(day.upAt) : '–'), good: st.lateUpMin != null && st.lateUpMin <= 15 },
+      { ic: 'clock_fill', label: 'Work', to: st.workMin, fmt: (v) => L.fmtDur(v), good: st.workMin >= S.settings.workGoalMin * 0.85, prev: prev && prev.workMin, up: true },
+      { ic: 'checkmark_alt', label: 'Tasks done', to: st.tasksDone, fmt: (v) => `${Math.round(v)} of ${st.tasksPlanned}`, good: st.tasksDone >= st.tasksPlanned * 0.8, prev: prev && prev.tasksDone, up: true },
+      { ic: 'speedometer', label: 'Productivity', to: st.avgProd * 100, fmt: (v) => `${Math.round(v)}%`, good: st.avgProd >= 0.9, prev: prev && prev.avgProd * 100, up: true },
+      { ic: 'bolt_fill', label: 'Gym', to: st.gymMin, fmt: (v) => L.fmtDur(v), good: st.gymMin >= 30, prev: prev && prev.gymMin, up: true },
+      { ic: 'hourglass', label: 'Wasted', to: st.wastedMin, fmt: (v) => L.fmtDur(v), good: st.wastedMin <= 45, prev: prev && prev.wastedMin, up: false },
+      { ic: 'moon_fill', label: 'Slept', to: st.sleepMin || 0, fmt: (v) => (st.sleepMin == null ? '–' : L.fmtDur(v)), good: st.sleepMin >= 420, prev: prev && prev.sleepMin, up: true },
+    ];
+    const delta = (l) => {
+      if (l.prev == null || l.to == null) return '';
+      const d = l.to - l.prev; if (Math.abs(d) < 1) return '';
+      const good = l.up ? d > 0 : d < 0;
+      return `<span class="mp-d ${good ? 'green' : 'red'}">${d > 0 ? '▲' : '▼'}</span>`;
+    };
+    const score = Math.round(st.score * 100);
+    const el = show(`<div class="mp ${passed ? 'pass' : 'fail'}">
+      <canvas id="confetti"></canvas>
       <div class="fl-top"><span>${UI.longDate(key)}</span><a id="x">${thenNight ? '' : 'Close'}</a></div>
-      <div class="fl-title" style="margin-top:6px">Your Day</div>
-      <div class="reveal-scroll">
-        <div class="rings"><svg viewBox="0 0 210 210">
-          ${ring(92, 'var(--ring-work)', st.rings.work, 'r1')}${ring(68, 'var(--ring-tasks)', st.rings.tasks, 'r2')}${ring(44, 'var(--ring-disc)', st.rings.discipline, 'r3')}
-        </svg></div>
-        <div class="ring-legend"><span id="l1" style="color:var(--ring-work)">Work ${Math.round(st.rings.work * 100)}%</span><span id="l2" style="color:var(--ring-tasks)">Tasks ${Math.round(st.rings.tasks * 100)}%</span><span id="l3" style="color:var(--ring-disc)">Discipline ${Math.round(st.rings.discipline * 100)}%</span></div>
-        <div class="rv-list">${rows.map((r, i) => `<div class="rv-row" id="rv${i}">
-          <span class="rv-ic ${r.ok ? 'good' : r.meh ? 'meh' : 'bad'}"><i class="f7-icons">${r.ok ? 'checkmark_alt' : r.meh ? 'minus' : 'xmark'}</i></span>
-          <span class="rv-label">${r.label}</span><span class="rv-val">${r.val}</span>${r.d || '<span class="rv-d"></span>'}</div>`).join('')}</div>
-        <div class="grade-reveal" id="gr"><span class="grade-big g-${day.grade}">${day.grade}</span>
-          <div><b>${better == null ? 'First graded day' : better ? 'Better than yesterday' : 'Worse than yesterday'}</b>
-          <span class="gr-sub">${L.goodGrade(day.grade) ? `${flameSVG(5, 12)} ${streakN} day streak` : 'Streak reset · B or better keeps it alive'}</span></div></div>
+      <div class="mp-banner"><div class="mp-title" id="mpt">${passed ? 'Day passed' : 'Day failed'}</div>
+        <div class="mp-step">${step ? `Step ${step.n}, ${UI.esc(step.title)}` : ''}</div></div>
+      <div class="mp-lines">${lines.map((l, i) => `<div class="mp-line" id="ml${i}">
+        <span class="mp-ic ${l.good ? 'good' : 'bad'}"><i class="f7-icons">${l.ic}</i></span>
+        <span class="mp-l">${l.label}</span>${delta(l)}<span class="mp-v num" id="mv${i}">${l.fmt(0)}</span></div>`).join('')}</div>
+      <div class="mp-score" id="msc">
+        <div class="mp-sh"><span>Day score</span><span class="num" id="msv">0</span></div>
+        <div class="mp-track"><span class="mp-fill" id="msf"></span><i style="left:60%"></i><i style="left:75%"></i><i style="left:90%"></i></div>
+        <div class="mp-marks"><span style="left:60%">C</span><span style="left:75%">B</span><span style="left:90%">A</span></div>
       </div>
-      <div class="fl-bottom" style="margin-top:12px;opacity:0;transition:opacity .4s" id="fb">
-        ${thenNight ? '<button class="btn big fill" id="go">Night Routine</button>' : '<button class="btn big gray" id="done">Close</button>'}</div>`);
-    // choreography: rings close one by one, rows tick in, grade pops
-    ['r1', 'r2', 'r3'].forEach((id, i) => later(() => {
-      const c = el.querySelector('#' + id); const r = +c.getAttribute('r');
-      c.setAttribute('stroke-dashoffset', C(r) * (1 - +c.dataset.p));
-      el.querySelector('#l' + (i + 1)).classList.add('on');
-      later(() => Sound.tick(), 700);
-    }, 300 + i * 650));
-    const t0 = 300 + 3 * 650 + 500;
-    rows.forEach((r, i) => later(() => { el.querySelector('#rv' + i).classList.add('on'); r.ok ? Sound.check() : Sound.pop(); }, t0 + i * 420));
-    const tg = t0 + rows.length * 420 + 250;
-    later(() => { el.querySelector('#gr').classList.add('on'); Sound.grade(); const sc = el.querySelector('.reveal-scroll'); sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' }); }, tg);
-    later(() => { el.querySelector('#fb').style.opacity = 1; }, tg + 500);
+      <div class="mp-end" id="mend">
+        <div class="mp-stamp g-${day.grade}">${day.grade}</div>
+        <div class="mp-streak">${passed ? `<b>${flameSVG(5, 18)}${streakN} day streak</b>` : '<b class="red">Streak lost</b>'}
+          <span>${prev ? (st.score >= prev.score ? 'Better than yesterday' : 'Worse than yesterday') : 'Your first graded day'}</span></div>
+      </div>
+      <div class="fl-bottom mp-go" id="fb">${thenNight ? '<button class="btn big fill" id="go">Night routine</button>' : '<button class="btn big gray" id="done">Close</button>'}</div>
+    </div>`);
+    // choreography: title slams in, lines count up one by one, score bar fills, grade stamps down
+    later(() => { el.querySelector('#mpt').classList.add('on'); passed ? Sound.grade() : Sound.soft(); if (passed) window.FX.confetti(el.querySelector('#confetti'), 90); }, 150);
+    const t0 = 900;
+    lines.forEach((l, i) => later(() => {
+      el.querySelector('#ml' + i).classList.add('on');
+      const v = el.querySelector('#mv' + i);
+      if (l.label === 'Woke up') v.textContent = l.fmt(); else countUp(v, l.to, l.fmt, 500);
+      l.good ? Sound.tick() : Sound.pop();
+    }, t0 + i * 330));
+    const ts = t0 + lines.length * 330 + 200;
+    later(() => {
+      el.querySelector('#msc').classList.add('on');
+      el.querySelector('#msf').style.width = `${Math.min(100, score)}%`;
+      countUp(el.querySelector('#msv'), score, (v) => `${Math.round(v)}`, 1000);
+    }, ts);
+    later(() => { el.querySelector('#mend').classList.add('on'); Sound.check(); }, ts + 1200);
+    later(() => { el.querySelector('#fb').classList.add('on'); }, ts + 1700);
     const x = el.querySelector('#x'); if (x) x.addEventListener('click', close);
     const go = el.querySelector('#go'); if (go) go.addEventListener('click', night);
     const dn = el.querySelector('#done'); if (dn) dn.addEventListener('click', close);
@@ -201,13 +215,14 @@
       <div class="fl-eyebrow">${step ? `Step ${step.n} · ${UI.esc(step.title)}` : 'Tomorrow'}</div>
       <div class="fl-title">Plan Tomorrow</div>
       <div class="reveal-scroll" style="margin-top:8px">
-        ${carry.length ? `<div class="section-title" style="margin-left:16px">Carry over from today</div>
-          <div class="list list-strong list-dividers inset" style="margin:0"><ul>${carry.map((b) => `<li><div class="item-content"><div class="item-inner">
-            <div class="item-title">${UI.esc(b.title)}<div class="task-sub">${L.fmtDur(b.expectedMin)}${b.actualMs ? ` · ${Math.round(b.actualMs / L.MIN)} min done` : ''}</div></div>
-            <div class="item-after"><a class="link" data-carry="${b.id}"><i class="f7-icons orange" style="font-size:26px">plus_circle_fill</i></a></div></div></div></li>`).join('')}</ul></div>` : ''}
-        <div class="section-title" style="margin-left:16px">Tomorrow · ${list.length} items · ${L.fmtDur(list.reduce((s, b) => s + b.expectedMin, 0))}</div>
-        <div class="list list-strong list-dividers inset tasks" style="margin:0"><ul>${list.map((b) => UI.rowHTML(b, n)).join('')}
-          <li><a class="item-content item-link no-chevron" id="add"><div class="item-media"><i class="f7-icons orange" style="font-size:22px">plus_circle_fill</i></div><div class="item-inner"><div class="item-title orange">New Task</div></div></a></li></ul></div>
+        ${carry.length ? `<div class="sec-head fl-sec"><h3>Carry over</h3><span class="muted">${carry.length} unfinished</span></div>
+          <div class="list rows fl-rows"><ul>${carry.map((b) => `<li class="row"><div class="row-in">
+            <span class="r-ic todo"></span>
+            <span class="r-txt"><span class="r-title">${UI.esc(b.title)}</span><span class="r-sub">${L.fmtDur(b.expectedMin)}${b.actualMs ? `, ${Math.round(b.actualMs / L.MIN)} min done` : ''}</span></span>
+            <a class="carry" data-carry="${b.id}" aria-label="Carry over"><i class="f7-icons">plus</i></a></div></li>`).join('')}</ul></div>` : ''}
+        <div class="sec-head fl-sec"><h3>Tomorrow</h3><span class="muted">${list.length ? `${list.length} tasks, ${L.fmtDur(list.reduce((s, b) => s + b.expectedMin, 0))}` : 'Nothing yet'}</span></div>
+        <div class="list rows fl-rows"><ul>${list.map((b) => UI.rowHTML(b, n)).join('')}
+          <li class="row"><a class="row-in" id="add"><span class="r-ic run"><i class="f7-icons">plus</i></span><span class="r-txt"><span class="r-title orange">New task</span></span></a></li></ul></div>
       </div>
       <div class="fl-bottom" style="margin-top:12px"><button class="btn big fill" id="bed"><i class="f7-icons" style="font-size:20px">moon_zzz_fill</i>I'm turning off my phone and going to bed</button></div>`);
     el.querySelectorAll('[data-carry]').forEach((a) => a.addEventListener('click', () => {
