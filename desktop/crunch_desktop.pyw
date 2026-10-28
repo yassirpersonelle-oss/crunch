@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 import winreg
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import tkinter as tk
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -49,6 +49,9 @@ class Cloud:
         req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers, method=method)
         with urllib.request.urlopen(req, timeout=15) as r:
             return json.loads(r.read() or b'null')
+
+    def save_block(self, b):
+        self._req('PATCH', f"/rest/v1/blocks?id=eq.{b['id']}", {'data': b})
 
     def load(self):
         today = datetime.now().date()
@@ -267,6 +270,10 @@ class Capsule:
                        ('<Button-3>', self._menu)):
             self.canvas.bind(ev, fn)
         self.menu = tk.Menu(self.root, tearoff=0)
+        self.menu.add_command(label='Done', command=lambda: self.act('done'))
+        self.menu.add_command(label='Pause', command=lambda: self.act('pause'))
+        self.menu.add_command(label='Start next', command=lambda: self.act('next'))
+        self.menu.add_separator()
         self.menu.add_command(label='Open Crunch', command=self.open_app)
         self.menu.add_command(label='Refresh', command=lambda: threading.Thread(target=self.fetch, daemon=True).start())
         self.menu.add_command(label='Wallpaper on/off', command=self.toggle_wall)
@@ -317,6 +324,36 @@ class Capsule:
         else:
             open(flag, 'w').close()
             restore_wallpaper()
+
+    # right-click actions: the same changes the phone makes (app/js/ui.js start/pause/done), written straight to the database
+    def act(self, what):
+        if DEMO or not self.data:
+            return
+        now = datetime.now()
+        stamp = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+        today = now.date().isoformat()
+        blocks = self.data['blocks']
+        run = next((b for b in blocks if b.get('runningSince')), None)
+        changes = []
+        if run and what in ('done', 'pause', 'next'):
+            nb = dict(run, actualMs=actual_ms(run, now), runningSince=None)
+            nb['doneAt' if what == 'done' else 'pausedAt'] = stamp
+            changes.append(nb)
+        if what == 'next':
+            todo = [b for b in blocks if b.get('date') == today and b.get('kind') == 'task' and not b.get('doneAt')
+                    and not b.get('runningSince') and (not run or b['id'] != run['id'])]
+            todo.sort(key=lambda b: b.get('plannedStart') or '99:99')
+            if todo:
+                changes.append(dict(todo[0], runningSince=stamp, doneAt=None))
+
+        def go():
+            try:
+                for b in changes:
+                    self.cloud.save_block(b)
+            except Exception:
+                self.err = 'Sync error'
+            self.fetch()
+        threading.Thread(target=go, daemon=True).start()
 
     def quit(self):
         self.root.destroy()
