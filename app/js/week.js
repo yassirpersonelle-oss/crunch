@@ -51,10 +51,10 @@
     html += `<div class="tl-bed" style="top:${y(bed)}px"><span>Bedtime</span></div>`;
     if (sel === today) html += `<div class="tl-now" style="top:${y(L.minOfDay(n))}px"></div>`;
     for (const b of timed) {
-      const s = L.hm(b.plannedStart), h = Math.max(22, b.expectedMin * PX - 2);
+      const s = L.hm(b.plannedStart), h = Math.max(22, b.expectedMin * PX - 4);
       const late = !b.doneAt && s + b.expectedMin > bed;
       const cls = [b.kind !== 'task' ? b.kind : '', b.doneAt ? 'done' : '', late ? 'late' : '', h < 40 ? 'short' : '', 'cat'].join(' ');
-      html += `<div class="blk ${cls}" data-id="${b.id}" style="top:${y(s) + 1}px;height:${h}px;--c:${window.Cats.hex(window.Cats.of(b))}">
+      html += `<div class="blk ${cls}" data-id="${b.id}" style="top:${y(s) + 2}px;height:${h}px;--c:${window.Cats.hex(window.Cats.of(b))}">
         <b>${b.doneAt ? '✓ ' : ''}${UI.esc(b.title)}</b><span class="t num">${b.plannedStart} – ${L.hmStr(s + b.expectedMin)}${b.fixed ? ' · fixed' : ''}</span>
         ${b.doneAt ? '' : '<div class="grip"></div>'}</div>`;
     }
@@ -115,13 +115,13 @@
     if (drag.mode === 'resize') {
       drag.newLen = Math.max(SNAP, snap(drag.len + dy));
       drag.newStart = drag.start;
-      drag.el.style.height = `${Math.max(22, drag.newLen * PX - 2)}px`;
+      drag.el.style.height = `${Math.max(22, drag.newLen * PX - 4)}px`;
       drag.label.textContent = `${L.fmtDur(drag.newLen)} · ends ${L.hmStr(drag.start + drag.newLen)}`;
       drag.label.style.top = `${(drag.start + drag.newLen - from) * PX - 8}px`;
     } else {
       drag.newStart = Math.max(0, Math.min(24 * 60 - drag.len, snap(drag.start + dy)));
       drag.newLen = drag.len;
-      drag.el.style.top = `${(drag.newStart - from) * PX + 1}px`;
+      drag.el.style.top = `${(drag.newStart - from) * PX + 2}px`;
       drag.label.textContent = L.hmStr(drag.newStart);
       drag.label.style.top = `${(drag.newStart - from) * PX - 8}px`;
     }

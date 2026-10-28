@@ -171,7 +171,7 @@
               else localStorage.setItem(DRAFT, JSON.stringify({ title, expectedMin: b.expectedMin, plannedStart: p.el.querySelector('[name=timed]').checked ? b.plannedStart : null, cat: b.cat, step: b.step, fixed: p.el.querySelector('[name=fixed]').checked }));
             } catch (e) { /* private mode */ }
           }
-          pickers.forEach((x) => x.destroy()); p.destroy();
+          pickers.forEach((x) => x.destroy()); setTimeout(() => p.destroy());
         },
       },
     });
@@ -261,7 +261,7 @@
         <div class="navbar"><div class="navbar-bg"></div><div class="navbar-inner"><div class="left"></div><div class="title">Settings</div>
           <div class="right"><a class="link popup-close" style="font-weight:600">Done</a></div></div></div>
         <div class="page-content" id="settings-body"></div></div></div></div>`,
-      on: { closed(p) { p.destroy(); } },
+      on: { closed(p) { setTimeout(() => p.destroy()); } },
     });
     const body = popup.el.querySelector('#settings-body');
     const pickers = [];

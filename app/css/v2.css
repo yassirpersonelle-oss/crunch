@@ -465,3 +465,9 @@ li.row.lift .row-in { background: var(--surface2); border-radius: 14px; box-shad
 .sup-type { font-weight: 600; color: var(--label); }
 .sup-st { margin-left: auto; }
 .sup-body { font-size: 15px; color: var(--label); white-space: pre-wrap; }
+
+/* build 6: review fixes */
+.popup .navbar-inner { padding-left: 16px; padding-right: 16px; }
+.ilabels li.item-input > .item-inner { min-height: 48px; padding-top: 2px; padding-bottom: 2px; }
+.ilabels .item-after { display: flex; align-items: center; gap: 12px; }
+.blk { box-sizing: border-box; }

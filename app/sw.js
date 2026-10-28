@@ -1,5 +1,5 @@
 // Crunch service worker: offline shell + push notifications.
-const CACHE = 'crunch-v5';
+const CACHE = 'crunch-v6';
 const SHELL = ['./', 'index.html', 'css/app.css', 'css/v2.css', 'config.js', 'js/logic.js', 'js/store.js', 'js/fx.js', 'js/roll.js', 'js/ui.js', 'js/home.js',
   'js/week.js', 'js/flows.js', 'js/push.js', 'js/focus.js', 'js/support.js', 'js/app.js', 'manifest.json', 'icons/icon-192.png'];
 

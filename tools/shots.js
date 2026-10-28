@@ -21,7 +21,7 @@ const SHOTS = [
   { name: '09-week', q: '&screen=week', wait: 1500 },
   { name: '10-plan', q: '&screen=plan', wait: 1200 },
   { name: '11-history', q: '&screen=history', wait: 1200 },
-  { name: '11b-history-all', q: '&screen=history', wait: 1200, run: () => { document.querySelector('[data-metric="all"]').click(); setTimeout(() => document.querySelector('.h-chip[data-line="prod"]').click(), 200); }, after: 700 },
+  { name: '11b-history-all', q: '&screen=history', wait: 1200, run: () => { document.querySelector('[data-metric="all"]').click(); setTimeout(() => { const c = document.querySelector('.h-chip'); if (c) c.click(); }, 200); }, after: 700 },
   { name: '12-history-scrolled', q: '&screen=history', wait: 1200, run: () => { document.querySelector('#view-history .page-content').scrollTop = 600; } },
   { name: '13-settings', q: '&screen=settings', wait: 1000 },
   { name: '14-morning', q: '&demo=fresh&at=2026-10-28T07:24&screen=morning', wait: 1000 },
@@ -82,11 +82,18 @@ const SHOTS = [
     if (ONLY && !s.name.includes(ONLY)) continue;
     cur = s.name;
     const u = new URL(BASE); new URLSearchParams(s.q.replace(/^&/, '')).forEach((v, k) => u.searchParams.set(k, v));
-    await page.goto(u.toString(), { waitUntil: 'networkidle0', timeout: 60000 });
-    await new Promise((r) => setTimeout(r, s.wait));
-    if (s.run) { await page.evaluate(s.run); await new Promise((r) => setTimeout(r, s.after || 500)); }
-    await page.screenshot({ path: path.join(OUT, s.name + '.png') });
-    console.log('shot', s.name);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await page.goto(u.toString(), { waitUntil: 'networkidle0', timeout: 60000 });
+        await new Promise((r) => setTimeout(r, s.wait));
+        if (s.run) { await page.evaluate(s.run); await new Promise((r) => setTimeout(r, s.after || 500)); }
+        await page.screenshot({ path: path.join(OUT, s.name + '.png') });
+        console.log('shot', s.name);
+        break;
+      } catch (e) {
+        if (attempt >= 3) { console.log('FAILED', s.name, e.message); break; }
+      }
+    }
   }
   await browser.close();
   console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no console errors');

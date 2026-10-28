@@ -35,7 +35,7 @@
               <div class="sup-body">${esc(r.text)}</div></div></div></li>`).join('')}</ul></div>` : ''}
           <div style="height:30px"></div>
         </div></div></div></div>`,
-      on: { opened(p) { p.el.querySelector('[name=text]').focus(); }, closed(p) { p.destroy(); } },
+      on: { opened(p) { p.el.querySelector('[name=text]').focus(); }, closed(p) { setTimeout(() => p.destroy()); } },
     });
     const el = popup.el, ta = el.querySelector('[name=text]');
     el.querySelectorAll('[data-type]').forEach((b) => b.addEventListener('click', () => {

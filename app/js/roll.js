@@ -11,12 +11,12 @@
   function attach(el, opts) {
     el.classList.add('roll');
     let st = null;
-    const stop = (e) => e.stopPropagation();
-    el.addEventListener('touchstart', stop, { passive: true }); // keep F7 swipeout off this spot
+    // a sideways slide belongs to the row's swipe (done / delete); only an open wheel keeps the touch to itself
+    el.addEventListener('touchmove', (e) => { if (st && st.pop) e.stopPropagation(); }, { passive: true });
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       const vals = typeof opts.values === 'function' ? opts.values() : opts.values;
-      st = { y: e.clientY, last: e.clientY, t: performance.now(), i: Math.max(0, opts.index(vals)), vals, moved: false, pid: e.pointerId, pop: null, acc: 0 };
+      st = { x: e.clientX, y: e.clientY, last: e.clientY, t: performance.now(), i: Math.max(0, opts.index(vals)), vals, moved: false, pid: e.pointerId, pop: null, acc: 0 };
       try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
       st.hold = setTimeout(() => { if (st && !st.moved) open(); }, 220);
     });
@@ -45,7 +45,12 @@
     el.addEventListener('pointermove', (e) => {
       if (!st) return;
       const dy = st.last - e.clientY; // finger up = later / longer
-      if (!st.pop) { if (Math.abs(e.clientY - st.y) < 4) return; open(); }
+      if (!st.pop) {
+        const ax = Math.abs(e.clientX - st.x), ay = Math.abs(e.clientY - st.y);
+        if (ax > 6 && ax > ay) { clearTimeout(st.hold); try { el.releasePointerCapture(st.pid); } catch (err) { /* ignore */ } st = null; return; }
+        if (ay < 4) return;
+        open();
+      }
       const now = performance.now(), speed = Math.abs(e.clientY - st.last) / Math.max(1, now - st.t);
       st.t = now; st.last = e.clientY;
       st.acc += dy * (speed > FAST ? 3 : 1);
