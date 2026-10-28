@@ -161,8 +161,7 @@
     const delta = (l) => {
       if (l.prev == null || l.to == null) return '';
       const d = l.to - l.prev; if (Math.abs(d) < 1) return '';
-      const good = l.up ? d > 0 : d < 0;
-      return `<span class="mp-d ${good ? 'green' : 'red'}">${d > 0 ? '▲' : '▼'}</span>`;
+      return `<span class="mp-d ${l.good ? 'green' : 'red'}">${d > 0 ? '▲' : '▼'}</span>`;
     };
     const score = Math.round(prod * 100);
     const R = 74, C = 2 * Math.PI * R;
@@ -180,11 +179,11 @@
           <div class="mr-in"><div class="mr-grade num" id="mrg"><span id="msv">0</span><small>%</small></div><div class="mr-score num">${L.fmtDur(st.workMin)} of ${L.fmtDur(S.settings.workGoalMin)}</div></div>
         </div>
         <div class="mp-title" id="mpt">${title}</div>
-        <div class="mp-step" id="mps">${kept ? flameSVG(5, 15) : ''}<span><span class="${kept ? '' : 'red'}">${streakTxt}</span>${vsTxt ? `, ${vsTxt}` : ''}</span></div>
+        <div class="mp-step" id="mps">${kept ? flameSVG(5, 15) : ''}<span>${vsTxt ? `${vsTxt} · ` : ''}<span class="${kept ? '' : 'red'}">${streakTxt}</span></span></div>
       </div>
       <div class="mp-lines">${lines.map((l, i) => `<div class="mp-line" id="ml${i}">
         <span class="mp-ic ${l.good ? 'good' : 'bad'}"><i class="f7-icons">${l.ic}</i></span>
-        <span class="mp-l">${l.label}</span>${delta(l)}<span class="mp-v num" id="mv${i}">${l.fmt(0)}</span></div>`).join('')}</div>
+        <span class="mp-l">${l.label}</span><span class="mp-vw">${delta(l)}<span class="mp-v num" id="mv${i}">${l.fmt(0)}</span></span></div>`).join('')}</div>
       </div>
       <div class="fl-bottom mp-go" id="fb">${thenNight ? '<button class="btn big fill" id="go"><i class="f7-icons" style="font-size:20px">moon_fill</i>Night routine</button>' : '<button class="btn big gray" id="done">Close</button>'}</div>
     </div>`);

@@ -96,7 +96,7 @@
     const rel = new Date(S.settings.releaseAt);
     const all = dayBlocks(key);
     const left = all.filter((b) => b.kind === 'task' && !b.doneAt).length;
-    const daysLeft = Math.max(0, Math.ceil((rel - n) / 86400000));
+    const daysLeft = Math.max(0, Math.floor((rel - n) / 86400000));
     const open = all.filter((b) => !b.doneAt);
     const list = showAll ? all : open.filter((b) => !b.runningSince).slice(0, 3);
     const tl = h.todayLeftMs / L.MIN;
@@ -214,7 +214,7 @@
   let metric = 'prod', hl = null;
   const prodOf = (st) => (st.prod != null ? st.prod : st.workMin / S.settings.workGoalMin);
   const METRICS = {
-    prod: { label: 'Productivity', short: 'Prod.', color: 'var(--accent)', get: (st) => prodOf(st) * 100, fmt: (v) => `${Math.round(v)}%`, goal: 75, goalLabel: 'streak', target: 100 },
+    prod: { label: 'Productivity', short: 'Prod.', color: 'var(--accent)', get: (st) => prodOf(st) * 100, fmt: (v) => `${Math.round(v)}%`, goal: 75, goalLabel: 'streak 75%', target: 100 },
     tasks: { label: 'Tasks', short: 'Tasks', color: 'var(--teal)', get: (st) => (st.tasksPlanned ? (st.tasksDone / st.tasksPlanned) * 100 : null), fmt: (v) => `${Math.round(v)}%`, target: 100 },
     wasted: { label: 'Wasted', short: 'Wasted', color: 'var(--red)', get: (st) => st.wastedMin / 60, fmt: (v) => `${v.toFixed(1)} h`, lowerBetter: true, target: 3 },
     sleep: { label: 'Sleep', short: 'Sleep', color: 'var(--indigo)', get: (st) => (st.sleepMin == null ? null : st.sleepMin / 60), fmt: (v) => `${v.toFixed(1)} h`, goal: 8, goalLabel: '8 h', target: 8 },
@@ -245,7 +245,7 @@
     }
     return d;
   }
-  const W = 360, H = 170, PL = 8, PR = 8, PT = 14, PB = 22;
+  const W = 360, H = 170, PL = 18, PR = 18, PT = 14, PB = 22;
   const xOf = (rows) => (i) => PL + (i * (W - PL - PR)) / Math.max(1, rows.length - 1);
   const dayLabels = (rows, x) => rows.map((r, i) => ((rows.length - 1 - i) % 3 === 0 ? `<text x="${x(i)}" y="${H - 5}" text-anchor="middle" class="h-lbl">${L.parseDate(r.k).getDate()}</text>` : '')).join('');
   function chart(rows) {
@@ -260,7 +260,7 @@
     const area = `${d} L${last[0]},${H - PB} L${pts[0][0]},${H - PB} Z`;
     return `<svg class="hchart" viewBox="0 0 ${W} ${H}">
       <defs><linearGradient id="hg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${M.color}" stop-opacity=".35"/><stop offset="1" stop-color="${M.color}" stop-opacity="0"/></linearGradient></defs>
-      ${goal ? `<line x1="${PL}" x2="${W - PR}" y1="${y(goal)}" y2="${y(goal)}" class="h-goal"/><text x="${W - PR}" y="${y(goal) - 5}" text-anchor="end" class="h-lbl">${M.goalLabel}</text>` : ''}
+      ${goal ? `<line x1="${PL}" x2="${W - PR}" y1="${y(goal)}" y2="${y(goal)}" class="h-goal"/><text x="${PL}" y="${y(goal) + 13}" class="h-lbl">${M.goalLabel}</text>` : ''}
       <path d="${area}" fill="url(#hg)"/>
       <path class="h-line" d="${d}" fill="none" stroke="${M.color}" stroke-width="2.5" stroke-linecap="round"/>
       <circle cx="${last[0]}" cy="${last[1]}" r="5" fill="${M.color}" stroke="#000" stroke-width="2.5"/>
@@ -301,7 +301,7 @@
       <div class="h-hero hist-hero">
         <div class="h-num num">${big}</div>
         <div class="h-sub">${M.label.toLowerCase()} per day, last 7 days</div>
-        ${better == null ? '' : `<div class="h-pills"><span class="pill ${better ? 'green' : 'red'}">${icon(better ? 'arrow_up_right' : 'arrow_down_right')}${better ? 'Better than the day before' : 'Worse than the day before'}</span></div>`}
+        ${better == null ? '' : `<div class="h-pills"><span class="pill ${better ? 'green' : 'red'}">${icon(better ? 'arrow_up_right' : 'arrow_down_right')}${better ? 'Better than yesterday' : 'Worse than yesterday'}</span></div>`}
       </div>
       <div class="seg-wrap"><div class="segmented segmented-strong">
         ${[...Object.entries(METRICS).map(([k, m]) => [k, m.short]), ['all', 'All']].map(([k, label]) => `<a class="button ${k === metric ? 'button-active' : ''}" data-metric="${k}">${label}</a>`).join('')}
