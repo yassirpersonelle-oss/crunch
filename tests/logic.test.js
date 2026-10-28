@@ -51,4 +51,22 @@ t('combo + stats + streak', () => {
   streakDays['2026-10-28'] = { finishedAt: 'x', stats: { prod: 0.6 } };
   assert.strictEqual(L.streak(streakDays, '2026-10-28'), 0);
 });
+t('reorder keeps the slots and the walls', () => {
+  const bl = [B('a', '09:00', 60), B('b', '10:00', 30), B('c', '10:30', 60), B('gym', '11:00', 60, { fixed: true }), B('d', '13:00', 30)];
+  const r = L.reorder(bl, '2026-10-28', ['c', 'a', 'b']);
+  assert.strictEqual(L.hmStr(r.c), '09:00');
+  assert.strictEqual(L.hmStr(r.a), '10:00'); // ends exactly when the 11:00 wall starts
+  assert.strictEqual(L.hmStr(r.b), '12:00'); // 11:00 would sit on the wall -> after it
+  assert.strictEqual(L.hmStr(r.d), '13:00');
+});
+t('gym slides when not fixed', () => {
+  const r = L.ripple([B('a', '16:00', 60), B('gym', '18:00', 60, { kind: 'gym' })], '2026-10-28', 'a', L.hm('16:00'), 150);
+  assert.strictEqual(L.hmStr(r.gym), '19:30');
+});
+t('a category off "counts as work" leaves work time out', () => {
+  const d = (h, m) => new Date(2026, 9, 28, h, m).toISOString();
+  const bl = [B('a', '08:00', 60, { actualMs: 60 * 60000, doneAt: d(9, 0), cat: 'read' }), B('b', '09:00', 30, { actualMs: 30 * 60000, doneAt: d(9, 30), cat: 'work' })];
+  const s = L.dayStats('2026-10-28', bl, { '2026-10-28': { upAt: d(7, 0) } }, { ...S, categories: [{ id: 'read', work: false }, { id: 'work', work: true }] }, new Date(2026, 9, 28, 12, 0));
+  assert.strictEqual(Math.round(s.workMin), 30);
+});
 console.log(`${ok} passed`);

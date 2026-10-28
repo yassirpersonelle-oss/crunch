@@ -44,6 +44,41 @@
     const diffMin = Math.round((nb.actualMs - nb.expectedMin * L.MIN) / L.MIN);
     window.UI.celebrate(L.onTime(nb), diffMin, L.combo(S.blocks, nb.date), nb);
   }
+  // swipe right: finish it. A task that never ran counts its planned time (it was done off the timer).
+  function complete(id) {
+    const b = S.blocks.find((x) => x.id === id); if (!b || b.doneAt) return;
+    if (b.runningSince) return done(id);
+    Store.saveBlock({ ...b, actualMs: b.actualMs || b.expectedMin * L.MIN, runningSince: null, doneAt: Store.now().toISOString() });
+    Sound.check();
+  }
+  // swipe left: delete, with 4 s to take it back
+  function remove(id) {
+    const b = S.blocks.find((x) => x.id === id); if (!b) return;
+    Store.deleteBlock(id);
+    undoToast(`Deleted ${b.title}`, () => Store.saveBlock(b));
+  }
+  function undoToast(text, onUndo) {
+    window.app.toast.create({
+      text: esc(text), closeButton: true, closeButtonText: 'Undo', closeTimeout: 4000, cssClass: 'undo-toast',
+      on: { closeButtonClick: onUndo },
+    }).open();
+  }
+  // New start and/or length for a block; everything after it on that day slides (fixed blocks stay as walls).
+  function applyTime(b, newStart, newLen) {
+    const ps = newStart == null ? b.plannedStart : L.hmStr(newStart);
+    if (!ps) { Store.saveBlock({ ...b, expectedMin: newLen }); return; }
+    const blocks = S.blocks.map((x) => (x.id === b.id ? { ...x, plannedStart: x.plannedStart || ps } : x));
+    const out = L.ripple(blocks, b.date, b.id, L.hm(ps), newLen);
+    const changed = [];
+    for (const x of S.blocks) {
+      if (x.date !== b.date || !(x.id in out)) continue;
+      const ns = L.hmStr(out[x.id]);
+      if (x.id === b.id) changed.push({ ...x, plannedStart: ns, expectedMin: newLen, origStart: null });
+      else if (ns !== x.plannedStart) changed.push({ ...x, plannedStart: ns });
+    }
+    if (!changed.some((x) => x.id === b.id)) changed.push({ ...b, plannedStart: ps, expectedMin: newLen });
+    Store.saveBlocks(changed);
+  }
   function undo(id) {
     const b = S.blocks.find((x) => x.id === id); if (b) Store.saveBlock({ ...b, doneAt: null });
   }
@@ -80,13 +115,21 @@
     const app = window.app;
     const isNew = !block;
     const key = block ? block.date : date || Store.today();
+    const Cats = window.Cats;
     const b = block ? { ...block } : {
       id: Store.uid(), date: key, kind: 'task', title: '', step: (stepFor(key) || {}).n || null,
-      plannedStart: start || null, expectedMin: 30, fixed: false,
+      plannedStart: start || null, expectedMin: 30, fixed: false, cat: Cats.last().id,
     };
+    if (!b.cat) b.cat = Cats.of(b).id;
+    // a new task you didn't add comes back as it was (the sheet never loses what you typed)
+    const DRAFT = 'crunch-task-draft';
+    if (isNew) {
+      try { const d = JSON.parse(localStorage.getItem(DRAFT)); if (d) Object.assign(b, d, start ? { plannedStart: start } : {}); } catch (e) { /* none */ }
+    }
+    let saved = false;
     const durText = (m) => L.fmtDur(m);
     const popup = app.popup.create({
-      swipeToClose: true, push: true,
+      swipeToClose: false, push: true,
       content: `<div class="popup task-popup"><div class="view"><div class="page">
         <div class="navbar"><div class="navbar-bg"></div><div class="navbar-inner">
           <div class="left"><a class="link popup-close">Cancel</a></div>
@@ -96,8 +139,8 @@
           <div class="list list-strong list-dividers inset ilabels" style="margin-top:20px"><ul>
             <li class="item-content item-input"><div class="item-inner"><div class="item-input-wrap">
               <input type="text" name="title" placeholder="Title" value="${esc(b.title)}" autocomplete="off" class="title-in"></div></div></li>
-            <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Kind</div><div class="item-input-wrap">
-              <select name="kind"><option value="task">Task</option><option value="gym">Gym</option><option value="routine">Routine</option></select></div></div></li>
+            <li><div class="item-content"><div class="item-inner"><div class="item-title">Category</div><div class="item-after">
+              <span class="cat-val" data-cat style="--c:${Cats.hex(Cats.byId(b.cat))}">${esc((Cats.byId(b.cat) || {}).name || '')}</span></div></div></div></li>
           </ul></div>
           <div class="list list-strong list-dividers inset"><ul>
             <li><a class="item-content item-link no-chevron" data-toggle="dur"><div class="item-inner"><div class="item-title">Duration</div><div class="item-after green num" data-dur>${durText(b.expectedMin)}</div></div></a></li>
@@ -112,27 +155,51 @@
           <div class="list list-strong list-dividers inset ilabels"><ul>
             <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Date</div><div class="item-input-wrap">
               <input type="date" name="date" value="${key}"></div></div></li>
-            <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Step</div><div class="item-input-wrap">
-              <select name="step"><option value="">None</option>${S.steps.map((s) => `<option value="${s.n}" ${s.n === b.step ? 'selected' : ''}>${s.n} · ${esc(s.title)}</option>`).join('')}</select></div></div></li>
+            <li><div class="item-content"><div class="item-inner"><div class="item-title">Step</div><div class="item-after">
+              <span class="step-val" data-stepval>${b.step ? esc(stepTitle(b.step)) : 'None'}</span></div></div></div></li>
           </ul></div>
           ${isNew ? '' : '<div class="list list-strong list-dividers inset"><ul><li><a class="item-content item-link no-chevron" data-del><div class="item-inner"><div class="item-title red" style="width:100%;text-align:center">Delete Task</div></div></a></li></ul></div>'}
           <div class="block-footer" style="margin:0 32px;color:var(--label3)">"Fixed time" makes it a wall in the planner: other tasks flow around it.</div>
         </div></div></div></div>`,
       on: {
         opened(p) { if (isNew) { const t = p.el.querySelector('[name=title]'); t && t.focus(); } },
-        closed(p) { pickers.forEach((x) => x.destroy()); p.destroy(); },
+        closed(p) {
+          if (isNew) {
+            const title = p.el.querySelector('[name=title]').value.trim();
+            try {
+              if (saved || !title) localStorage.removeItem(DRAFT);
+              else localStorage.setItem(DRAFT, JSON.stringify({ title, expectedMin: b.expectedMin, plannedStart: p.el.querySelector('[name=timed]').checked ? b.plannedStart : null, cat: b.cat, step: b.step, fixed: p.el.querySelector('[name=fixed]').checked }));
+            } catch (e) { /* private mode */ }
+          }
+          pickers.forEach((x) => x.destroy()); p.destroy();
+        },
       },
     });
     const el = popup.el;
-    el.querySelector('[name=kind]').value = b.kind;
     const pickers = [];
+    if (isNew) el.querySelector('[name=title]').value = b.title || '';
+    // category + step: hold and roll, or tap for the list
+    const catEl = el.querySelector('[data-cat]');
+    const setCat = (id) => { b.cat = id; const c = Cats.byId(id); catEl.textContent = c ? c.name : ''; catEl.style.setProperty('--c', Cats.hex(c)); };
+    window.Roll.catRoll(catEl, { get: () => b.cat, set: setCat });
+    const stepEl = el.querySelector('[data-stepval]');
+    const setStep = (n) => { b.step = n || null; stepEl.textContent = n ? stepTitle(n) : 'None'; };
+    window.Roll.attach(stepEl, {
+      values: () => [0, ...S.steps.map((s) => s.n)], index: (vals) => Math.max(0, vals.indexOf(b.step || 0)),
+      label: (n) => (n ? stepTitle(n) : 'None'), onEnd: setStep,
+      onTap: () => app.actions.create({ cssClass: 'more-menu', buttons: [[{ text: 'None', onClick: () => setStep(0) },
+        ...S.steps.map((s) => ({ text: `${s.n} · ${esc(s.title)}`, onClick: () => setStep(s.n) }))], [{ text: 'Cancel', bold: true }]] }).open(),
+    });
+    // duration + start: hold the value and roll; a tap still opens the full wheel
+    window.Roll.durRoll(el.querySelector('[data-dur]'), { get: () => b.expectedMin, set: (m) => { b.expectedMin = m; el.querySelector('[data-dur]').textContent = durText(m); } });
+    window.Roll.timeRoll(el.querySelector('[data-start]'), { get: () => L.hm(b.plannedStart || el.querySelector('[data-start]').textContent), set: (m) => { b.plannedStart = L.hmStr(m); el.querySelector('[data-start]').textContent = b.plannedStart; } });
     const hours = Array.from({ length: 13 }, (_, i) => i), mins = Array.from({ length: 12 }, (_, i) => i * 5);
     const makers = {};
     makers.dur = () => pickers.push(app.picker.create({
       containerEl: el.querySelector('#pick-dur'), toolbar: false, rotateEffect: true,
       value: [Math.min(12, Math.floor(b.expectedMin / 60)), b.expectedMin % 60 - (b.expectedMin % 5)],
       cols: [{ values: hours, displayValues: hours.map((h) => `${h} h`) }, { values: mins, displayValues: mins.map((m) => `${m} min`) }],
-      on: { change(_p, v) { const m = Math.max(5, +v[0] * 60 + +v[1]); b.expectedMin = m; el.querySelector('[data-dur]').textContent = durText(m); } },
+      on: { change(_p, v) { const m = Math.max(5, +v[0] * 60 + +v[1]); b.expectedMin = m; el.querySelector('[data-dur]').textContent = durText(m); Sound.tap(); } },
     }));
     const ps = b.plannedStart || '09:00';
     const hh = Array.from({ length: 24 }, (_, i) => i);
@@ -140,7 +207,7 @@
       containerEl: el.querySelector('#pick-start'), toolbar: false, rotateEffect: true,
       value: [+ps.slice(0, 2), Math.round(+ps.slice(3) / 5) * 5 % 60],
       cols: [{ values: hh, displayValues: hh.map(L.pad) }, { divider: true, content: ':' }, { values: mins, displayValues: mins.map(L.pad) }],
-      on: { change(_p, v) { b.plannedStart = `${L.pad(+v[0])}:${L.pad(+v[1])}`; el.querySelector('[data-start]').textContent = b.plannedStart; } },
+      on: { change(_p, v) { b.plannedStart = `${L.pad(+v[0])}:${L.pad(+v[1])}`; el.querySelector('[data-start]').textContent = b.plannedStart; Sound.tap(); } },
     }));
     el.querySelectorAll('[data-toggle]').forEach((a) => a.addEventListener('click', () => {
       const k = a.dataset.toggle, w = el.querySelector(`[data-wheel="${k}"]`); w.hidden = !w.hidden;
@@ -153,14 +220,20 @@
     });
     el.querySelector('[data-save]').addEventListener('click', () => {
       const f = (n) => el.querySelector(`[name=${n}]`);
-      b.title = f('title').value.trim() || (f('kind').value === 'gym' ? 'Gym' : 'Untitled task');
-      b.kind = f('kind').value;
+      const cat = Cats.byId(b.cat) || Cats.list()[0];
+      b.kind = Cats.kindOf(cat);
+      b.title = f('title').value.trim() || (b.kind === 'task' ? 'Untitled task' : cat.name);
       b.date = f('date').value || key;
-      b.step = f('step').value ? +f('step').value : null;
       b.fixed = f('fixed').checked;
       if (!f('timed').checked) b.plannedStart = null;
       if (block && block.plannedStart !== b.plannedStart) b.origStart = null;
-      Store.saveBlock(b);
+      saved = true;
+      if (S.settings.lastCat !== b.cat) Store.setKV('settings', { ...S.settings, lastCat: b.cat });
+      // a changed time or length on an existing timed task pushes the rest of the day like the planner does
+      if (block && b.plannedStart && b.date === block.date && (b.plannedStart !== block.plannedStart || b.expectedMin !== block.expectedMin)) {
+        Store.saveBlock({ ...b, plannedStart: block.plannedStart, expectedMin: block.expectedMin });
+        applyTime(S.blocks.find((x) => x.id === b.id), L.hm(b.plannedStart), b.expectedMin);
+      } else Store.saveBlock(b);
       popup.close();
     });
     const del = el.querySelector('[data-del]');
@@ -224,8 +297,19 @@
         </ul></div>
         <div class="list list-strong list-dividers inset" style="margin-top:-20px"><ul><li><a class="item-content item-link no-chevron" data-radd><div class="item-media"><i class="f7-icons green" style="font-size:22px">plus_circle_fill</i></div><div class="item-inner"><div class="item-title green">Add Item</div></div></a></li></ul></div>
         <div class="block-footer" style="margin:-24px 32px 24px">Drag to reorder. Swipe left to delete. Tap the time to set how long it takes.</div>
+        <div class="block-title">Categories</div>
+        <div class="list list-strong list-dividers inset cats"><ul>
+          ${window.Cats.list().map((c) => `<li><div class="item-content">
+            <div class="item-media"><a class="cat-dot big" data-catcolor="${c.id}" style="--c:${window.Cats.hex(c)}" aria-label="Colour"></a></div>
+            <div class="item-inner"><a class="item-title" data-catname="${c.id}">${esc(c.name)}</a>
+              <div class="item-after">${c.kind ? '<span class="cat-note">Not work</span>' : `<span class="cat-note">Counts as work</span><label class="toggle"><input type="checkbox" data-catwork="${c.id}" ${c.work !== false ? 'checked' : ''}><span class="toggle-icon"></span></label>`}</div></div></div></li>`).join('')}
+          <li><a class="item-content item-link no-chevron" data-catadd><div class="item-media"><i class="f7-icons green" style="font-size:22px">plus_circle_fill</i></div><div class="item-inner"><div class="item-title green">New Category</div></div></a></li>
+        </ul></div>
+        <div class="block-footer" style="margin:-24px 32px 24px">Tap a dot to change its colour, a name to rename or delete it. "Work" means its time counts towards your daily work goal.</div>
         <div class="block-title">Notifications</div>
         <div class="list list-strong list-dividers inset"><ul><li><a class="item-content item-link no-chevron" data-push><div class="item-inner"><div class="item-title">Notifications</div><div class="item-after" id="push-state">${window.Push ? window.Push.label() : ''}</div></div></a></li></ul></div>
+        <div class="block-title">Help</div>
+        <div class="list list-strong list-dividers inset"><ul><li><a class="item-content item-link" data-support><div class="item-inner"><div class="item-title">Report a Bug or Idea</div><div class="item-after">${window.Support ? window.Support.count() : ''}</div></div></a></li></ul></div>
         <div style="height:30px"></div>`;
       body.querySelectorAll('[data-theme-pick]').forEach((d) => d.addEventListener('click', () => {
         Store.setKV('settings', { ...S.settings, theme: d.dataset.themePick });
@@ -267,6 +351,27 @@
       body.querySelector('[data-radd]').addEventListener('click', () => {
         app.dialog.prompt('', 'New routine item', (v) => { if (v && v.trim()) { save([...S.routines[routineTab], { id: Store.uid(), title: v.trim(), min: null }]); render(); } });
       });
+      // categories
+      const Cats = window.Cats;
+      const setCats = (f) => { Cats.save(Cats.list().map((c) => f(c) || c)); render(); };
+      body.querySelectorAll('[data-catcolor]').forEach((d) => d.addEventListener('click', () => {
+        const id = d.dataset.catcolor;
+        app.actions.create({ cssClass: 'more-menu', buttons: [Cats.COLORS.map(([name, hex]) => ({
+          text: `<span class="cat-dot" style="--c:${hex}"></span>${name[0].toUpperCase() + name.slice(1)}`,
+          onClick: () => setCats((c) => (c.id === id ? { ...c, color: name } : null)),
+        })), [{ text: 'Cancel', bold: true }]] }).open();
+      }));
+      body.querySelectorAll('[data-catname]').forEach((a) => a.addEventListener('click', () => {
+        const c = Cats.byId(a.dataset.catname); if (!c) return;
+        const buttons = [{ text: esc(c.name), label: true }, { text: 'Rename', onClick: () => app.dialog.prompt('', 'Rename category', (v) => { if (v && v.trim()) setCats((x) => (x.id === c.id ? { ...x, name: v.trim() } : null)); }, null, c.name) }];
+        if (!c.kind && Cats.list().filter((x) => !x.kind).length > 1) {
+          buttons.push({ text: 'Delete', color: 'red', onClick: () => { Cats.save(Cats.list().filter((x) => x.id !== c.id)); render(); } });
+        }
+        app.actions.create({ buttons: [buttons, [{ text: 'Cancel', bold: true }]] }).open();
+      }));
+      body.querySelectorAll('[data-catwork]').forEach((t) => t.addEventListener('change', () => setCats((c) => (c.id === t.dataset.catwork ? { ...c, work: t.checked } : null))));
+      body.querySelector('[data-catadd]').addEventListener('click', () => Cats.create(() => render()));
+      body.querySelector('[data-support]').addEventListener('click', () => window.Support && window.Support.open());
       body.querySelector('[data-push]').addEventListener('click', async () => { if (window.Push) { await window.Push.enable(); render(); } });
     }
     render();
@@ -276,5 +381,6 @@
   window.UI = {
     $, esc, longDate, shortDate, timeOf, stepFor, stepTitle, dayBlocks, running, DAYS, MONTHS,
     start, pause, done, startGym, blockMenu, stepMenu, taskEditor, settingsPopup, applyTheme,
+    complete, remove, undoToast, applyTime,
   };
 })();

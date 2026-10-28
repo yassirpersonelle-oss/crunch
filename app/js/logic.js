@@ -83,7 +83,10 @@
 
     const mine = blocks.filter((b) => b.date === date);
     const tasks = mine.filter((b) => b.kind === 'task');
-    const workMin = tasks.reduce((s, b) => s + actualMs(b, end) / MIN, 0);
+    // a category can be switched to "doesn't count as work" (Settings -> Categories)
+    const cats = settings.categories || [];
+    const counts = (b) => { const c = cats.find((x) => x.id === b.cat); return !c || c.work !== false; };
+    const workMin = tasks.filter(counts).reduce((s, b) => s + actualMs(b, end) / MIN, 0);
     const gymMin = mine.filter((b) => b.kind === 'gym').reduce((s, b) => s + actualMs(b, end) / MIN, 0);
     const routineMin = (day.routineMin || 0);
     const wastedMin = Math.max(0, awakeMin - workMin - gymMin - routineMin - settings.wasteAllowMin);
@@ -165,6 +168,27 @@
     return out;
   }
 
+  // Long-press reorder: `order` lists the moved task ids in their new order. Those tasks, then the other
+  // open timed tasks, take the day's start-time slots in turn (a slot never starts before the previous task
+  // ends), and fixed blocks stay where they are as walls. Returns id -> new start (minutes).
+  function reorder(blocks, date, order) {
+    const open = blocks.filter((b) => b.date === date && b.plannedStart && !isDone(b) && !b.runningSince);
+    const walls = open.filter((b) => b.fixed);
+    const movable = open.filter((b) => !b.fixed).sort((a, b) => hm(a.plannedStart) - hm(b.plannedStart));
+    const slots = movable.map((b) => hm(b.plannedStart));
+    const byId = Object.fromEntries(movable.map((b) => [b.id, b]));
+    const seq = [...order.filter((id) => byId[id]), ...movable.map((b) => b.id).filter((id) => !order.includes(id))];
+    const out = {};
+    let cursor = -1;
+    seq.forEach((id, i) => {
+      const len = byId[id].expectedMin;
+      let s = Math.max(slots[i], cursor);
+      for (const w of walls) { const ws = hm(w.plannedStart), we = ws + w.expectedMin; if (s < we && s + len > ws) s = we; }
+      out[id] = s; cursor = s + len;
+    });
+    return out;
+  }
+
   // Shift not-done timed tasks that start before `fromMin` (e.g. the morning routine ran long).
   function pushBack(blocks, date, fromMin) {
     const todo = blocks.filter((b) => b.date === date && b.plannedStart && !isDone(b) && !b.fixed)
@@ -179,7 +203,7 @@
   const api = {
     MIN, pad, dateKey, parseDate, addDays, hm, hmStr, at, minOfDay, fmtDur, fmtClock, fmtTimer,
     hoursLeft, dayNumber, actualMs, isRunning, isDone, overMs, onTime, productivity, combo,
-    dayStats, grade, goodGrade, streak, dayProd, STREAK_MIN, ripple, pushBack,
+    dayStats, grade, goodGrade, streak, dayProd, STREAK_MIN, ripple, reorder, pushBack,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;

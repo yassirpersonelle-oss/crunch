@@ -33,6 +33,32 @@ const SHOTS = [
   { name: '19-tomorrow', q: '&at=2026-10-28T22:50&screen=tomorrow', wait: 1000 },
   { name: '20-night', q: '&at=2026-10-28T22:55&screen=night', wait: 900 },
   { name: '21-overview', q: '&demo=fresh&at=2026-10-28T07:50&screen=overview', wait: 1000 },
+  // build 5
+  { name: 'b5-01-upnext', q: '', wait: 1500, run: () => { document.querySelector('#view-today .page-content').scrollTop = 560; } },
+  { name: 'b5-02-quickadd', q: '', wait: 1500, run: () => {
+    document.querySelector('#qa-add').click();
+    setTimeout(() => { const t = document.querySelector('#qa-t'); t.value = 'Car physics tuning'; t.dispatchEvent(new Event('input')); t.blur(); document.querySelector('#view-today .page-content').scrollTop = 900; }, 200);
+  }, after: 900 },
+  { name: 'b5-03-roll', q: '', wait: 1500, run: () => {
+    document.querySelector('#view-today .page-content').scrollTop = 560;
+    setTimeout(() => { const el = document.querySelector('[data-roll-dur]'); const r = el.getBoundingClientRect();
+      el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r.left + 5, clientY: r.top + 5, pointerId: 1 })); }, 200);
+  }, after: 800 },
+  { name: 'b5-04-swipe', q: '', wait: 1500, run: () => { document.querySelector('#view-today .page-content').scrollTop = 560; window.app.swipeout.open(document.querySelector('#upnext li.row'), 'left'); }, after: 900 },
+  { name: 'b5-05-timer-left', q: '', wait: 1500, run: () => { document.querySelector('#g-big').click(); }, after: 600 },
+  { name: 'b5-06-focus', q: '', wait: 1500, run: () => { window.Focus.open(); }, after: 900 },
+  { name: 'b5-07-focus-subs', q: '', wait: 1500, run: () => {
+    const r = window.UI.running();
+    window.Store.saveBlock({ ...r, notes: 'Use the SA walk timing, not the Roblox default.', subs: [
+      { id: 'a', t: 'Idle breathing loop', s: 780, d: 20, done: 798 },
+      { id: 'b', t: 'Walk cycle blend', s: 800, d: 25, done: null },
+      { id: 'c', t: 'Export to SAClips', s: 815, d: 30, done: null }] });
+    window.Focus.open(); setTimeout(() => { document.querySelector('#focus').scrollTop = 900; }, 400);
+  }, after: 1100 },
+  { name: 'b5-08-sheet', q: '&screen=task', wait: 1200 },
+  { name: 'b5-09-settings-cats', q: '&screen=settings', wait: 1000, run: () => { const pc = document.querySelector('#settings-body'); pc.scrollTop = pc.scrollHeight; }, after: 600 },
+  { name: 'b5-10-support', q: '', wait: 1500, run: () => { window.Support.open(); }, after: 900 },
+  { name: 'b5-11-week', q: '&screen=week', wait: 1500 },
 ];
 
 (async () => {

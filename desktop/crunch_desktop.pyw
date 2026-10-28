@@ -150,7 +150,13 @@ def status(data, now):
         col = RED if act > exp else (GREEN if run.get('kind') == 'gym' else ORANGE)
         title = run['title'] if len(run['title']) <= 22 else run['title'][:21] + '…'
         segs.append((title, WHITE))
-        segs.append((f'{clock(act)} / {clock(exp)}', col))
+        # same switch as the phone (tap the timer there): time spent or time left; over time is +m:ss either way
+        if act > exp:
+            segs.append((f'+{clock(act - exp)}', col))
+        elif st.get('timerMode') == 'left':
+            segs.append((f'{clock(exp - act)} left', col))
+        else:
+            segs.append((f'{clock(act)} / {clock(exp)}', col))
     else:
         marks = [iso(day.get('upAt'))] + [iso(b.get(k)) for b in data['blocks'] for k in ('doneAt', 'pausedAt')]
         marks = [m for m in marks if m]

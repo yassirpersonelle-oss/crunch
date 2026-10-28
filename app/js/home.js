@@ -10,29 +10,95 @@
   const heroDur = (min) => { const s = Math.max(0, Math.floor(min * 60)); return `${Math.floor(s / 3600)}<span>h</span> ${L.pad(Math.floor(s / 60) % 60)}<span>m</span> ${L.pad(s % 60)}<span>s</span>`; };
 
   // ---------- rows (Today, Week "anytime", flows) ----------
+  // A task row: start time on the left (hold and roll to move it), title, duration on the right (hold and
+  // roll to stretch it). Swipe right = done, left = delete, long-press = drag to reorder.
   function rowHTML(b, n) {
     const run = !!b.runningSince, isDone = !!b.doneAt, act = L.actualMs(b, n);
-    let lead = `<span class="r-ic todo">${b.kind === 'gym' ? icon('bolt_fill') : ''}</span>`;
-    let trail = `<span class="r-dur">${L.fmtDur(b.expectedMin)}</span>`;
-    let sub = b.plannedStart || 'Anytime';
+    const hex = window.Cats.hex(window.Cats.of(b));
+    let lead = `<span class="r-ic todo" style="--c:${hex}">${b.kind === 'gym' ? icon('bolt_fill') : ''}</span>`;
+    let trail = `<span class="r-dur" data-roll-dur="${b.id}">${L.fmtDur(b.expectedMin)}</span>`;
+    let at = `<span class="r-at num ${b.plannedStart ? '' : 'any'}" data-roll-start="${b.id}">${b.plannedStart || 'Any'}</span>`;
+    const notes = [];
     if (isDone) {
       const ok = L.onTime(b);
       lead = `<span class="r-ic ${ok ? 'ok' : 'late'}">${icon(ok ? 'checkmark_alt' : 'clock_fill')}</span>`;
       trail = `<span class="r-dur ${ok ? 'green' : 'red'}">${Math.round(act / L.MIN)}/${b.expectedMin} min</span>`;
-      sub = `Done ${timeOf(b.doneAt)}`;
+      at = `<span class="r-at num">${timeOf(b.doneAt)}</span>`;
     } else if (run) {
       lead = `<span class="r-ic run">${icon(b.kind === 'gym' ? 'bolt_fill' : 'play_fill')}</span>`;
       trail = '<span class="r-dur green">Now</span>';
+      at = `<span class="r-at num">${b.plannedStart || ''}</span>`;
     } else if (b.kind === 'gym') {
       lead = `<span class="r-ic gym">${icon('bolt_fill')}</span>`;
     }
-    if (!isDone && b.origStart && b.origStart !== b.plannedStart) sub += ` <s class="moved">${b.origStart}</s>`;
-    if (!isDone && b.plannedStart && L.hm(b.plannedStart) + b.expectedMin > L.hm(S.settings.bed)) sub = `<span class="red">${sub} · after bedtime</span>`;
+    if (!isDone && b.origStart && b.origStart !== b.plannedStart) notes.push(`moved from <s class="moved">${b.origStart}</s>`);
+    if (!isDone && b.plannedStart && L.hm(b.plannedStart) + b.expectedMin > L.hm(S.settings.bed)) notes.push('<span class="red">after bedtime</span>');
+    if (b.fixed && !isDone) notes.push('fixed time');
     return `<li class="swipeout row ${isDone ? 'is-done' : ''}" data-id="${b.id}">
       <div class="swipeout-content"><a class="row-in" data-block="${b.id}">
-        ${lead}<span class="r-txt"><span class="r-title">${esc(b.title)}</span><span class="r-sub">${sub}</span></span>${trail}
+        ${lead}${at}<span class="r-txt"><span class="r-title">${esc(b.title)}</span>${notes.length ? `<span class="r-sub">${notes.join(' · ')}</span>` : ''}</span>${trail}
       </a></div>
-      <div class="swipeout-actions-right"><a class="swipeout-delete" data-confirm="false">Delete</a></div></li>`;
+      ${isDone ? '' : `<div class="swipeout-actions-left"><a class="swipeout-overswipe sw-done" data-complete="${b.id}">${icon('checkmark_alt')}Done</a></div>`}
+      <div class="swipeout-actions-right"><a class="swipeout-overswipe sw-del" data-remove="${b.id}">${icon('trash_fill')}Delete</a></div></li>`;
+  }
+
+  // wire the hold-and-roll spots of rows rendered into `root`
+  function armRows(root) {
+    root.querySelectorAll('[data-roll-start]').forEach((el) => {
+      const b = S.blocks.find((x) => x.id === el.dataset.rollStart); if (!b) return;
+      const now5 = () => Math.ceil(L.minOfDay(Store.now()) / 5) * 5;
+      window.Roll.timeRoll(el, { exact: true, get: () => (b.plannedStart ? L.hm(b.plannedStart) : now5()), set: (m) => UI.applyTime(b, m, b.expectedMin) });
+    });
+    root.querySelectorAll('[data-roll-dur]').forEach((el) => {
+      const b = S.blocks.find((x) => x.id === el.dataset.rollDur); if (!b) return;
+      window.Roll.durRoll(el, { get: () => b.expectedMin, set: (m) => UI.applyTime(b, null, m) });
+    });
+  }
+
+  // long-press a timed row, then drag it up or down: the times follow the new order
+  function armReorder(ul) {
+    let rd = null;
+    const rows = () => [...ul.querySelectorAll(':scope > li.row')];
+    ul.addEventListener('pointerdown', (e) => {
+      const li = e.target.closest('li.row');
+      if (!li || e.target.closest('.roll, .swipeout-actions-left, .swipeout-actions-right')) return;
+      const b = S.blocks.find((x) => x.id === li.dataset.id);
+      if (!b || !b.plannedStart || b.doneAt || b.runningSince || b.fixed) return;
+      rd = { li, y0: e.clientY, x0: e.clientX, on: false };
+      rd.timer = setTimeout(() => {
+        if (!rd) return;
+        rd.on = true; li.classList.add('lift'); Sound.pop();
+        window.app.swipeout.close(li);
+      }, 420);
+    });
+    const move = (e) => {
+      if (!rd) return;
+      if (!rd.on) { if (Math.abs(e.clientY - rd.y0) + Math.abs(e.clientX - rd.x0) > 8) { clearTimeout(rd.timer); rd = null; } return; }
+      const li = rd.li, list = rows(), i = list.indexOf(li);
+      let dy = e.clientY - rd.y0;
+      const prev = list[i - 1], next = list[i + 1];
+      if (prev && dy < -prev.offsetHeight / 2) { ul.insertBefore(li, prev); rd.y0 -= prev.offsetHeight; dy += prev.offsetHeight; Sound.tap(); }
+      else if (next && dy > next.offsetHeight / 2) { ul.insertBefore(next, li); rd.y0 += next.offsetHeight; dy -= next.offsetHeight; Sound.tap(); }
+      li.style.transform = `translateY(${dy}px)`;
+    };
+    const up = () => {
+      if (!rd) return;
+      clearTimeout(rd.timer);
+      const r = rd; rd = null;
+      if (!r.on) return;
+      r.li.classList.remove('lift'); r.li.style.transform = '';
+      const eat = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      r.li.addEventListener('click', eat, { capture: true, once: true });
+      setTimeout(() => r.li.removeEventListener('click', eat, { capture: true }), 400);
+      const order = rows().map((x) => x.dataset.id);
+      const out = L.reorder(S.blocks, Store.today(), order);
+      const changed = S.blocks.filter((b) => b.id in out && L.hmStr(out[b.id]) !== b.plannedStart).map((b) => ({ ...b, plannedStart: L.hmStr(out[b.id]) }));
+      if (changed.length) Store.saveBlocks(changed); else renderToday();
+    };
+    window.addEventListener('pointermove', move, { passive: true });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    ul.addEventListener('touchmove', (e) => { if (rd && rd.on) e.preventDefault(); }, { passive: false });
   }
 
   // ---------- Today ----------
@@ -48,9 +114,8 @@
     } else if (r) {
       const act = L.actualMs(r, n), exp = r.expectedMin * L.MIN, over = act > exp;
       p = Math.min(1, act / exp); cls = over ? 'over' : r.kind === 'gym' ? 'gym' : '';
-      big = L.fmtTimer(act);
+      ({ big, sub } = timerText(r, n));
       title = esc(r.title);
-      sub = over ? `<span class="red">+${L.fmtDur((act - exp) / L.MIN)} over</span>` : `of ${L.fmtDur(r.expectedMin)}`;
     } else {
       const marks = [day.upAt, ...S.blocks.filter((b) => b.date === key).flatMap((b) => [b.doneAt, b.pausedAt])].filter(Boolean).map((x) => new Date(x));
       const idle = marks.length ? (n - Math.max(...marks)) / L.MIN : 0;
@@ -66,8 +131,20 @@
         <path class="g-track" d="M12 130 A118 118 0 0 1 248 130"/>
         <path class="g-fill" id="g-fill" d="M12 130 A118 118 0 0 1 248 130" stroke-dasharray="${ARC}" stroke-dashoffset="${ARC * (1 - p)}"/>
       </svg>
-      <div class="g-in"><div class="g-big num" id="g-big">${big}</div><div class="g-title">${title}</div><div class="g-sub num" id="g-sub">${sub}</div></div>
+      <div class="g-in"><div class="g-big num" id="g-big" ${r && !day.finishedAt ? 'data-action="timer-mode"' : ''}>${big}</div><div class="g-title">${title}</div><div class="g-sub num" id="g-sub">${sub}</div></div>
     </div>`;
+  }
+
+  // The running task's number: time spent (18:07) or time left (11:53), tap to switch; over time is +3:10 in both.
+  function timerText(r, n) {
+    const act = L.actualMs(r, n), exp = r.expectedMin * L.MIN;
+    if (act > exp) return { big: `+${L.fmtTimer(act - exp)}`, sub: `<span class="red">over ${L.fmtDur(r.expectedMin)}</span>` };
+    if (S.settings.timerMode === 'left') return { big: L.fmtTimer(exp - act), sub: `left of ${L.fmtDur(r.expectedMin)}` };
+    return { big: L.fmtTimer(act), sub: `of ${L.fmtDur(r.expectedMin)}` };
+  }
+  function toggleTimer() {
+    Store.setKV('settings', { ...S.settings, timerMode: S.settings.timerMode === 'left' ? 'spent' : 'left' });
+    Sound.tap();
   }
 
   function actionsHTML() {
@@ -81,6 +158,7 @@
       : next ? btn('', 'play_fill', 'Start', true, `data-start="${next.id}"`) : btn('new-task', 'plus', 'Add', true);
     return `<div class="acts">${first}
       ${r ? btn('', 'pause_fill', 'Pause', false, `data-pause="${r.id}"`) : ''}
+      ${r ? btn('focus', 'eye_fill', 'Focus') : ''}
       ${btn('more', 'ellipsis', 'More')}</div>`;
   }
 
@@ -111,8 +189,8 @@
       ${gaugeHTML(n)}
       ${actionsHTML()}
       <div class="sec-head"><h3>${showAll ? 'Today' : 'Up next'}</h3>${all.length > 3 || showAll ? `<a data-action="toggle-all">${showAll ? 'Less' : `See all ${all.length}`}</a>` : ''}</div>
-      ${list.length ? `<div class="list rows"><ul>${list.map((b) => rowHTML(b, n)).join('')}</ul></div>`
-        : '<div class="empty">Nothing planned. Tap Add to plan your next task.</div>'}
+      ${list.length ? `<div class="list rows" id="upnext"><ul>${list.map((b) => rowHTML(b, n)).join('')}</ul></div>` : ''}
+      ${quickHTML()}
       <div class="sec-head"><h3>So far</h3></div>
       <div class="bars">
         ${barRow('clock_fill', 'var(--green)', 'Work', `${L.fmtDur(st.workMin)} / ${L.fmtDur(S.settings.workGoalMin)}`, st.workMin / S.settings.workGoalMin)}
@@ -121,6 +199,83 @@
       </div>
       <div style="height:28px"></div>`;
     renderStreak();
+    const un = $('#upnext ul'); if (un) { armRows(un); armReorder(un); }
+    armQuick();
+  }
+
+  // ---------- fast add: title, start, length (end worked out), nothing else ----------
+  const qa = { open: false, title: '', start: null, dur: 30, cat: null };
+  function openToday() {
+    const n = Store.now(), key = Store.today();
+    return S.blocks.filter((b) => b.date === key && b.plannedStart && !b.doneAt);
+  }
+  // after the last planned task (or the running one), never in the past
+  function qaAutoStart() {
+    const n = Store.now(), nowMin = Math.ceil(L.minOfDay(n) / 5) * 5;
+    let end = nowMin;
+    for (const b of openToday()) {
+      const e = b.runningSince ? L.minOfDay(n) + Math.max(0, b.expectedMin - L.actualMs(b, n) / L.MIN) : L.hm(b.plannedStart) + b.expectedMin;
+      end = Math.max(end, Math.ceil(e / 5) * 5);
+    }
+    return Math.min(end, 23 * 60 + 55);
+  }
+  const qaStart = () => (qa.start == null ? qaAutoStart() : qa.start);
+  function qaClash(s, d) {
+    const hit = openToday().find((b) => { const bs = L.hm(b.plannedStart); return s < bs + b.expectedMin && s + d > bs; });
+    if (hit) return `Overlaps ${esc(hit.title)} ${hit.plannedStart}–${L.hmStr(L.hm(hit.plannedStart) + hit.expectedMin)}`;
+    if (s + d > L.hm(S.settings.bed)) return `Ends after bedtime (${S.settings.bed})`;
+    return '';
+  }
+  function quickHTML() {
+    if (!qa.open) return `<div class="qa"><a class="qa-add" id="qa-add">${icon('plus')}<span>Add a task</span></a></div>`;
+    const c = window.Cats.byId(qa.cat) || window.Cats.last(), s = qaStart(), warn = qaClash(s, qa.dur);
+    return `<div class="qa open">
+      <input id="qa-t" type="text" placeholder="What are you doing next?" autocomplete="off" enterkeyhint="done" value="${esc(qa.title)}">
+      <div class="qa-row">
+        <span class="qa-cat" id="qa-cat" style="--c:${window.Cats.hex(c)}">${esc(c.name)}</span>
+        <span class="qa-time"><span class="qa-s num" id="qa-s">${L.hmStr(s)}</span><span class="qa-arrow">→</span><span class="qa-e num" id="qa-e">${L.hmStr(s + qa.dur)}</span></span>
+        <span class="qa-d num" id="qa-d">${L.fmtDur(qa.dur)}</span>
+      </div>
+      <div class="qa-warn" id="qa-w">${warn}</div>
+      <div class="qa-btns"><a class="qa-cancel" id="qa-x">Cancel</a><button class="btn fill qa-go" id="qa-go">Add</button></div>
+    </div>`;
+  }
+  function qaRefresh() {
+    const s = qaStart();
+    $('#qa-s').textContent = L.hmStr(s); $('#qa-e').textContent = L.hmStr(s + qa.dur); $('#qa-d').textContent = L.fmtDur(qa.dur);
+    $('#qa-w').innerHTML = qaClash(s, qa.dur);
+  }
+  function armQuick() {
+    const add = $('#qa-add');
+    if (add) {
+      let hold = null, held = false;
+      add.addEventListener('pointerdown', () => { held = false; hold = setTimeout(() => { held = true; Sound.pop(); UI.taskEditor({ date: Store.today() }); }, 500); });
+      const cancel = () => clearTimeout(hold);
+      add.addEventListener('pointerup', cancel); add.addEventListener('pointerleave', cancel); add.addEventListener('pointercancel', cancel);
+      add.addEventListener('click', () => { if (held) return; qa.open = true; qa.cat = qa.cat || window.Cats.last().id; renderToday(); const t = $('#qa-t'); if (t) t.focus(); });
+      return;
+    }
+    if (!qa.open) return;
+    const t = $('#qa-t');
+    t.addEventListener('input', () => { qa.title = t.value; });
+    t.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); qaAdd(); } });
+    window.Roll.timeRoll($('#qa-s'), { get: qaStart, set: (m) => { qa.start = m; qaRefresh(); } });
+    window.Roll.durRoll($('#qa-d'), { get: () => qa.dur, set: (m) => { qa.dur = m; qaRefresh(); } });
+    window.Roll.catRoll($('#qa-cat'), { get: () => qa.cat, set: (id) => { qa.cat = id; const c = window.Cats.byId(id); $('#qa-cat').textContent = c.name; $('#qa-cat').style.setProperty('--c', window.Cats.hex(c)); } });
+    $('#qa-x').addEventListener('click', () => { Object.assign(qa, { open: false, title: '', start: null }); renderToday(); });
+    $('#qa-go').addEventListener('click', qaAdd);
+  }
+  function qaAdd() {
+    const title = qa.title.trim();
+    if (!title) { const t = $('#qa-t'); t.focus(); t.classList.add('shake'); setTimeout(() => t.classList.remove('shake'), 400); return; }
+    const key = Store.today(), c = window.Cats.byId(qa.cat) || window.Cats.last();
+    const b = { id: Store.uid(), date: key, kind: window.Cats.kindOf(c), cat: c.id, title, plannedStart: L.hmStr(qaStart()), expectedMin: qa.dur,
+      step: (UI.stepFor(key) || {}).n || null, fixed: false };
+    if (document.activeElement) document.activeElement.blur();
+    Object.assign(qa, { open: false, title: '', start: null, dur: 30 });
+    if (S.settings.lastCat !== c.id) Store.setKV('settings', { ...S.settings, lastCat: c.id });
+    Store.saveBlock(b);
+    Sound.pop();
   }
 
   function renderStreak() {
@@ -137,8 +292,9 @@
     const g = $("#gauge"); if (!g) return;
     const act = L.actualMs(r, n), exp = r.expectedMin * L.MIN, over = act > exp;
     if (over !== g.classList.contains('over')) return renderToday();
-    $('#g-big').textContent = L.fmtTimer(act);
-    if (over) $('#g-sub').innerHTML = `<span class="red">+${L.fmtDur((act - exp) / L.MIN)} over</span>`;
+    const tt = timerText(r, n);
+    $('#g-big').textContent = tt.big;
+    $('#g-sub').innerHTML = tt.sub;
     $('#g-fill').setAttribute('stroke-dashoffset', ARC * (1 - Math.min(1, act / exp)));
   }
 
@@ -323,5 +479,5 @@
     const t = e.target.closest('[data-action="toggle-all"]'); if (t) { showAll = !showAll; renderToday(); }
   });
 
-  Object.assign(window.UI, { rowHTML, renderToday, renderStreak, tickToday, celebrate, renderPlan, renderHistory });
+  Object.assign(window.UI, { rowHTML, armRows, renderToday, renderStreak, tickToday, celebrate, renderPlan, renderHistory, toggleTimer, timerText });
 })();

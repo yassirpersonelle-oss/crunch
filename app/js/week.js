@@ -53,13 +53,14 @@
     for (const b of timed) {
       const s = L.hm(b.plannedStart), h = Math.max(22, b.expectedMin * PX - 2);
       const late = !b.doneAt && s + b.expectedMin > bed;
-      const cls = [b.kind !== 'task' ? b.kind : '', b.doneAt ? 'done' : '', late ? 'late' : '', h < 40 ? 'short' : ''].join(' ');
-      html += `<div class="blk ${cls}" data-id="${b.id}" style="top:${y(s) + 1}px;height:${h}px">
+      const cls = [b.kind !== 'task' ? b.kind : '', b.doneAt ? 'done' : '', late ? 'late' : '', h < 40 ? 'short' : '', 'cat'].join(' ');
+      html += `<div class="blk ${cls}" data-id="${b.id}" style="top:${y(s) + 1}px;height:${h}px;--c:${window.Cats.hex(window.Cats.of(b))}">
         <b>${b.doneAt ? '✓ ' : ''}${UI.esc(b.title)}</b><span class="t num">${b.plannedStart} – ${L.hmStr(s + b.expectedMin)}${b.fixed ? ' · fixed' : ''}</span>
         ${b.doneAt ? '' : '<div class="grip"></div>'}</div>`;
     }
     html += '</div>';
     document.getElementById('week').innerHTML = html;
+    const any = document.querySelector('#week .anytime ul'); if (any) UI.armRows(any);
   }
 
   function scrollToNow() {
@@ -95,7 +96,7 @@
     const b = S.blocks.find((x) => x.id === blk.dataset.id); if (!b) return;
     const resize = !!e.target.closest('.grip');
     drag = {
-      b, el: blk, mode: resize ? 'resize' : 'pending', y0: e.clientY, t0: Date.now(),
+      b, el: blk, mode: resize ? 'resize' : 'pending', y0: e.clientY, x0: e.clientX, t0: Date.now(),
       start: L.hm(b.plannedStart), len: b.expectedMin, pid: e.pointerId, label: null,
     };
     if (resize) beginDrag(); else drag.hold = setTimeout(() => { if (drag && drag.mode === 'pending' && !b.doneAt) { drag.mode = 'move'; beginDrag(); } }, HOLD_MS);
@@ -128,7 +129,19 @@
   function onMove(e) {
     if (!drag) return;
     if (drag.mode === 'pending') {
-      if (Math.abs(e.clientY - drag.y0) > 8) { clearTimeout(drag.hold); drag = null; } // it was a scroll
+      const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+      // sideways: swipe right = done, left = delete
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) { clearTimeout(drag.hold); drag.mode = 'swipe'; drag.el.classList.add('swiping'); return; }
+      if (Math.abs(dy) > 8) { clearTimeout(drag.hold); drag = null; } // it was a scroll
+      return;
+    }
+    if (drag.mode === 'swipe') {
+      e.preventDefault();
+      const dx = e.clientX - drag.x0;
+      drag.dx = dx;
+      drag.el.style.transform = `translateX(${dx}px)`;
+      drag.el.classList.toggle('sw-done', dx > 70 && !drag.b.doneAt);
+      drag.el.classList.toggle('sw-del', dx < -70);
       return;
     }
     e.preventDefault();
@@ -140,6 +153,12 @@
     const d = drag; drag = null;
     if (d.mode === 'pending') { // a tap
       if (Date.now() - d.t0 < HOLD_MS + 50) UI.blockMenu(d.b);
+      return;
+    }
+    if (d.mode === 'swipe') {
+      if (d.dx > 70 && !d.b.doneAt) UI.complete(d.b.id);
+      else if (d.dx < -70) UI.remove(d.b.id);
+      render();
       return;
     }
     if (d.label) d.label.remove();

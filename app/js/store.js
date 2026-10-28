@@ -34,7 +34,7 @@
 
   const state = {
     settings: { ...DEFAULT_SETTINGS }, steps: DEFAULT_STEPS, routines: DEFAULT_ROUTINES,
-    days: {}, blocks: [], user: null, demo: DEMO,
+    days: {}, blocks: [], feedback: [], user: null, demo: DEMO,
   };
   const listeners = new Set();
   const emit = () => listeners.forEach((f) => f(state));
@@ -72,7 +72,7 @@
     add({ title: 'Export the Good clips', plannedStart: '11:00', expectedMin: 45, actualMs: 41 * 60000, doneAt: iso(d0, 11, 45) });
     add({ title: 'Female walk set', plannedStart: '13:00', expectedMin: 60, actualMs: 40 * 60000, runningSince: n.toISOString() });
     add({ title: 'Car enter / exit clips', plannedStart: '14:00', expectedMin: 60 });
-    blocks.push({ id: uid(), date: d0, kind: 'gym', title: 'Gym', plannedStart: '18:00', expectedMin: 60, fixed: true });
+    blocks.push({ id: uid(), date: d0, kind: 'gym', cat: 'gym', title: 'Gym', plannedStart: '18:00', expectedMin: 60, fixed: false });
     add({ title: 'Weapon clips shortlist', plannedStart: '19:30', expectedMin: 90 });
     add({ title: 'Search online for missing clips', plannedStart: null, expectedMin: 30 });
     // overrun demo (?demo=over): the running task is past its time
@@ -90,11 +90,13 @@
     const data = saved && saved.day === today() ? saved : { ...demoSeed(), day: today() };
     state.days = data.days; state.blocks = data.blocks;
     if (data.routines) state.routines = data.routines;
+    if (data.feedback) state.feedback = data.feedback;
+    if (data.settings) state.settings = { ...state.settings, ...data.settings };
     state.user = { email: 'demo' };
   }
   function demoSave() {
     try {
-      localStorage.setItem(DEMO_KEY, JSON.stringify({ day: today(), days: state.days, blocks: state.blocks, routines: state.routines }));
+      localStorage.setItem(DEMO_KEY, JSON.stringify({ day: today(), days: state.days, blocks: state.blocks, routines: state.routines, feedback: state.feedback, settings: state.settings }));
     } catch (e) { /* ignore */ }
   }
 
@@ -119,6 +121,7 @@
       if (r.key === 'settings') state.settings = { ...DEFAULT_SETTINGS, ...r.data };
       if (r.key === 'steps') state.steps = r.data;
       if (r.key === 'routines') state.routines = r.data;
+      if (r.key === 'feedback') state.feedback = r.data;
     }
     // The notification function needs the phone's time zone to know what "07:15" means.
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -160,6 +163,7 @@
         if (p.new.key === 'settings') state.settings = { ...DEFAULT_SETTINGS, ...p.new.data };
         if (p.new.key === 'steps') state.steps = p.new.data;
         if (p.new.key === 'routines') state.routines = p.new.data;
+        if (p.new.key === 'feedback') state.feedback = p.new.data;
         emit();
       })
       .subscribe();

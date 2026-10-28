@@ -11,10 +11,16 @@
   window.app = app;
 
   let activeTab = 'today';
+  let lastTouch = Date.now();
+  ['pointerdown', 'keydown', 'scroll', 'wheel'].forEach((ev) => document.addEventListener(ev, () => { lastTouch = Date.now(); }, { passive: true, capture: true }));
+  window.addEventListener('focus-closed', () => { lastTouch = Date.now(); });
   function render() {
     if (window.Week && window.Week.isDragging()) return;
     UI.applyTheme();
-    UI.renderToday();
+    // don't rebuild Today under your thumbs while you type a fast-add task
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#today input');
+    if (!typing) UI.renderToday();
+    if (window.Focus) window.Focus.render();
     if (activeTab === 'week') window.Week.render();
     if (activeTab === 'plan') UI.renderPlan();
     if (activeTab === 'history') UI.renderHistory();
@@ -22,6 +28,11 @@
 
   // One delegated tap handler for every page and flow.
   document.addEventListener('click', (e) => {
+    const sw = e.target.closest('[data-complete],[data-remove]');
+    if (sw) {
+      const li = sw.closest('li.swipeout'); if (li) app.swipeout.close(li);
+      return sw.dataset.complete ? UI.complete(sw.dataset.complete) : UI.remove(sw.dataset.remove);
+    }
     const t = e.target.closest('[data-action],[data-start],[data-pause],[data-done],[data-block],[data-step]');
     if (!t || t.closest('.swipeout-actions-right')) return;
     if (t.dataset.start) return UI.start(t.dataset.start);
@@ -42,6 +53,9 @@
       case 'streak': return app.dialog.alert(`${L.streak(S.days, Store.today())} days in a row at 75% of your work goal or more. The flame grows with every task finished on time today.`, 'Streak');
       case 'finish': return finishAsk();
       case 'more': return moreMenu();
+      case 'timer-mode': return UI.toggleTimer();
+      case 'focus': return window.Focus.open();
+      case 'support': return window.Support.open();
       default:
     }
   });
@@ -59,6 +73,7 @@
     const items = [{ text: 'Add a task', icon: ic('plus'), onClick: () => UI.taskEditor({ date: Store.today() }) }];
     if (!(r && r.kind === 'gym') && !day.finishedAt) items.push({ text: 'Start gym', icon: ic('bolt_fill'), onClick: () => UI.startGym() });
     if (!day.finishedAt) items.push({ text: 'Finish the day', icon: ic('moon_fill'), onClick: finishAsk });
+    items.push({ text: 'Report a bug or idea', icon: ic('ant_fill'), onClick: () => window.Support.open() });
     app.actions.create({ cssClass: 'more-menu', buttons: [items, [{ text: 'Cancel', bold: true }]] }).open();
   }
 
@@ -76,9 +91,21 @@
   // ---------- start ----------
   Store.on(() => render());
   Store.init().then(() => {
+    // build 5: the gym is no longer a wall by default, so a task that runs long pushes it down
+    if (!S.settings.m5) {
+      const walls = S.blocks.filter((b) => b.kind === 'gym' && b.fixed);
+      if (walls.length) Store.saveBlocks(walls.map((b) => ({ ...b, fixed: false })));
+      Store.setKV('settings', { ...S.settings, m5: true });
+    }
     window.Week.init();
     render();
-    setInterval(() => { if (activeTab === 'today') UI.tickToday(); }, 1000);
+    setInterval(() => {
+      if (activeTab === 'today') UI.tickToday();
+      if (window.Focus) window.Focus.tick();
+      // Focus mode opens by itself after 20 s untouched while a task runs on Today
+      const busy = window.Flows.isOpen() || document.querySelector('.modal-in, #celebrate:not([hidden])') || window.Focus.isOpen();
+      if (activeTab === 'today' && UI.running() && !busy && Date.now() - lastTouch > 20000) window.Focus.open();
+    }, 1000);
     setInterval(render, 60000);
     const screen = params.get('screen');
     if (screen) { openScreen(screen); return; }
