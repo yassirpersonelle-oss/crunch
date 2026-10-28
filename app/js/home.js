@@ -19,7 +19,7 @@
       sub = `Done ${timeOf(b.doneAt)}`;
     } else if (run) {
       lead = `<span class="r-ic run">${icon(b.kind === 'gym' ? 'bolt_fill' : 'play_fill')}</span>`;
-      trail = '<span class="r-dur orange">Now</span>';
+      trail = '<span class="r-dur green">Now</span>';
     } else if (b.kind === 'gym') {
       lead = `<span class="r-ic gym">${icon('bolt_fill')}</span>`;
     }
@@ -100,7 +100,7 @@
     }
     const all = dayBlocks(key);
     const open = all.filter((b) => !b.doneAt);
-    const list = showAll ? all : open.slice(0, 3);
+    const list = showAll ? all : open.filter((b) => !b.runningSince).slice(0, 3);
     const tl = h.todayLeftMs / L.MIN;
     $('#today').innerHTML = `
       <div class="h-hero">
@@ -115,8 +115,8 @@
         : '<div class="empty">Nothing planned. Tap Add to plan your next task.</div>'}
       <div class="sec-head"><h3>So far</h3></div>
       <div class="bars">
-        ${barRow('clock_fill', 'var(--orange)', 'Work', `${L.fmtDur(st.workMin)} / ${L.fmtDur(S.settings.workGoalMin)}`, st.workMin / S.settings.workGoalMin)}
-        ${barRow('checkmark_alt', 'var(--green)', 'Tasks', `${st.tasksDone} of ${st.tasksPlanned}`, st.tasksPlanned ? st.tasksDone / st.tasksPlanned : 0)}
+        ${barRow('clock_fill', 'var(--green)', 'Work', `${L.fmtDur(st.workMin)} / ${L.fmtDur(S.settings.workGoalMin)}`, st.workMin / S.settings.workGoalMin)}
+        ${barRow('checkmark_alt', 'var(--teal)', 'Tasks', `${st.tasksDone} of ${st.tasksPlanned}`, st.tasksPlanned ? st.tasksDone / st.tasksPlanned : 0)}
         ${barRow('hourglass', 'var(--red)', 'Wasted', L.fmtDur(st.wastedMin), st.wastedMin / 180, st.wastedMin > 60 ? 'red' : '')}
       </div>
       <div style="height:28px"></div>`;
@@ -143,23 +143,38 @@
   }
 
   // ---------- full-screen task celebration (Duolingo-style) ----------
+  // Top: flame + verdict. Middle: combo meter towards the blue flame (7). Bottom: the next task + "Crunch the next task".
   function celebrate(ok, diffMin, comboN, block) {
     const el = $('#celebrate');
     const streakN = L.streak(S.days, Store.today());
-    const act = block ? Math.round(block.actualMs / L.MIN) : 0;
-    const box = (cls, label, value) => `<div class="cb ${cls}"><div class="cb-h">${label}</div><div class="cb-v num">${value}</div></div>`;
+    const act = block && block.actualMs ? Math.round(block.actualMs / L.MIN) : 0;
+    const next = dayBlocks(Store.today()).find((b) => !b.doneAt && !b.runningSince && b.kind === 'task' && (!block || b.id !== block.id));
+    const lvl = ok ? Math.min(7, comboN) : 0;
+    const segs = Array.from({ length: 7 }, (_, i) => `<i class="${i < lvl ? 'on' : ''}" style="animation-delay:${0.5 + i * 0.07}s"></i>`).join('');
+    const meter = ok
+      ? (comboN >= 7 ? 'Blue flame. Keep it going.' : `${7 - comboN} more on time for the blue flame`)
+      : 'Combo back to 0';
     el.innerHTML = `<div class="cel-full ${ok ? 'win' : 'lose'}">
       <canvas id="confetti"></canvas>
       <div class="cel-center">
-        <div class="cel-flame">${flameSVG(ok ? comboN : 0, ok ? 120 : 84)}</div>
+        <div class="cel-flame">${flameSVG(lvl, ok ? 120 : 80)}</div>
         <h1 class="cel-title">${ok ? (comboN >= 3 ? `${comboN} in a row!` : 'On time!') : 'Done, but late'}</h1>
-        <p class="cel-sub">${ok ? (diffMin < 0 ? `${-diffMin} min under your estimate` : 'Right on your estimate') : `${L.fmtDur(diffMin)} over. Your combo starts again.`}</p>
-        <div class="cbs">${box('t', 'Time', `${act} min`)}${box('c', 'Combo', ok ? comboN : 0)}${box('s', 'Streak', streakN)}</div>
+        <p class="cel-sub">${ok ? (diffMin < 0 ? `${-diffMin} min under your estimate` : 'Right on your estimate') : `${L.fmtDur(diffMin)} over your estimate`}${act ? `, took ${L.fmtDur(act)}` : ''}</p>
+        <div class="cel-meter"><div class="cm-segs">${segs}</div><div class="cm-cap"><span>${meter}</span><span>${streakN} day streak</span></div></div>
       </div>
-      <button class="btn big ${ok ? 'fill' : 'gray'} cel-go" id="cel-go">Continue</button>
+      <div class="cel-foot">
+        ${next ? `<div class="cel-next"><span class="r-ic todo">${'<i class="f7-icons">play_fill</i>'}</span>
+          <span class="r-txt"><span class="cn-cap">Up next</span><span class="r-title">${esc(next.title)}</span></span>
+          <span class="r-dur">${L.fmtDur(next.expectedMin)}</span></div>
+          <button class="btn big fill" id="cel-go"><i class="f7-icons" style="font-size:20px">bolt_fill</i>Crunch the next task</button>
+          <button class="cel-later" id="cel-x">Not now</button>`
+        : '<button class="btn big fill" id="cel-x">Continue</button>'}
+      </div>
     </div>`;
     el.hidden = false;
-    el.querySelector('#cel-go').addEventListener('click', () => { el.hidden = true; el.innerHTML = ''; });
+    const shut = () => { el.hidden = true; el.innerHTML = ''; };
+    el.querySelector('#cel-x').addEventListener('click', shut);
+    const go = el.querySelector('#cel-go'); if (go) go.addEventListener('click', () => { shut(); UI.start(next.id); });
     if (ok) { Sound.win(); confetti(el.querySelector('#confetti')); } else Sound.soft();
   }
 
@@ -193,8 +208,8 @@
   // ---------- History (one chart, four views) ----------
   let metric = 'score';
   const METRICS = {
-    score: { label: 'Score', color: 'var(--orange)', get: (st) => st.score * 100, fmt: (v) => `${Math.round(v)}`, goal: 75, goalLabel: 'B' },
-    work: { label: 'Work', color: 'var(--orange)', get: (st) => st.workMin / 60, fmt: (v) => `${v.toFixed(1)} h`, goal: () => S.settings.workGoalMin / 60, goalLabel: 'goal' },
+    score: { label: 'Score', color: 'var(--green)', get: (st) => st.score * 100, fmt: (v) => `${Math.round(v)}`, goal: 75, goalLabel: 'B' },
+    work: { label: 'Work', color: 'var(--green)', get: (st) => st.workMin / 60, fmt: (v) => `${v.toFixed(1)} h`, goal: () => S.settings.workGoalMin / 60, goalLabel: 'goal' },
     wasted: { label: 'Wasted', color: 'var(--red)', get: (st) => st.wastedMin / 60, fmt: (v) => `${v.toFixed(1)} h`, lowerBetter: true },
     sleep: { label: 'Sleep', color: 'var(--indigo)', get: (st) => (st.sleepMin == null ? null : st.sleepMin / 60), fmt: (v) => `${v.toFixed(1)} h`, goal: 8, goalLabel: '8 h' },
   };

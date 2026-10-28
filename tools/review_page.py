@@ -11,8 +11,8 @@ GROUPS = [
    ('01-today', 'Today', 'Big work-hours number, today\'s time left, the late wake-up chip, the running task.'),
    ('02-today-over', 'Task over its time', 'Ring, timer and outline turn red; "+12 min over" appears.'),
    ('03-today-scrolled', 'Scrolled', 'Up next (3 tasks, See all for the rest), then three slim progress bars.'),
-   ('04-celebrate', 'Done on time', 'Full screen: the flame bounces in, confetti, three stat boxes, Continue.'),
-   ('05-overrun-toast', 'Done late', 'Same screen, quiet: grey boxes, no confetti, the combo resets.'),
+   ('04-celebrate', 'Done on time', 'The flame, a combo meter towards the blue flame, then your next task and Crunch the next task.'),
+   ('05-overrun-toast', 'Done late', 'Same screen, quiet: grey flame, empty meter, no confetti. The next task is still one tap away.'),
    ('06-menu', 'Tap a task', 'iOS action sheet: Start, Edit, Delete.')]),
  ('Tasks & settings', 'Adding and editing tasks, routines, your day settings.', [
    ('07-new-task', 'New task', 'Title, kind, duration, optional time, fixed time, date, step.'),
@@ -27,8 +27,8 @@ GROUPS = [
    ('16-routine-timed', 'Routine card', 'One item per screen. Timed items count down and turn red when over.'),
    ('21-overview', 'Your day', 'Today\'s list, then one button to start the first task.')]),
  ('Evening', 'Finish the day, see the results, go to bed.', [
-   ('17b-passed', 'Day passed', 'The title slams in, each stat counts up with a tick, the score bar fills, the grade stamps down. Confetti on a good day.'),
-   ('17-reveal', 'Day failed', 'A D or F day shows "Day failed" in red and the streak is lost.'),
+   ('17b-passed', 'Day passed', 'The ring fills while the score counts up, the grade pops in, confetti, then each stat ticks in.'),
+   ('17-reveal', 'Day failed', 'A D or F day turns the ring and title red and the streak is lost.'),
    ('15-routine', 'Night routine', 'Tap the circle: it fills orange with a tick, then the next item slides in.'),
    ('19-tomorrow', 'Plan tomorrow', 'Unfinished tasks offered as one-tap carry-overs, then add new ones.'),
    ('20-night', 'Good night', 'Logs your bedtime and shows the sleep you will get.')]),

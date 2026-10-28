@@ -100,11 +100,11 @@
               <select name="kind"><option value="task">Task</option><option value="gym">Gym</option><option value="routine">Routine</option></select></div></div></li>
           </ul></div>
           <div class="list list-strong list-dividers inset"><ul>
-            <li><a class="item-content item-link no-chevron" data-toggle="dur"><div class="item-inner"><div class="item-title">Duration</div><div class="item-after orange num" data-dur>${durText(b.expectedMin)}</div></div></a></li>
+            <li><a class="item-content item-link no-chevron" data-toggle="dur"><div class="item-inner"><div class="item-title">Duration</div><div class="item-after green num" data-dur>${durText(b.expectedMin)}</div></div></a></li>
             <li class="r-wheel" data-wheel="dur" hidden><div id="pick-dur"></div></li>
             <li><div class="item-content"><div class="item-inner"><div class="item-title">Set a time</div><div class="item-after">
               <label class="toggle"><input type="checkbox" name="timed" ${b.plannedStart ? 'checked' : ''}><span class="toggle-icon"></span></label></div></div></div></li>
-            <li data-row="start" ${b.plannedStart ? '' : 'hidden'}><a class="item-content item-link no-chevron" data-toggle="start"><div class="item-inner"><div class="item-title">Starts</div><div class="item-after orange num" data-start>${b.plannedStart || '09:00'}</div></div></a></li>
+            <li data-row="start" ${b.plannedStart ? '' : 'hidden'}><a class="item-content item-link no-chevron" data-toggle="start"><div class="item-inner"><div class="item-title">Starts</div><div class="item-after green num" data-start>${b.plannedStart || '09:00'}</div></div></a></li>
             <li class="r-wheel" data-wheel="start" hidden><div id="pick-start"></div></li>
             <li><div class="item-content"><div class="item-inner"><div class="item-title">Fixed time</div><div class="item-after">
               <label class="toggle"><input type="checkbox" name="fixed" ${b.fixed ? 'checked' : ''}><span class="toggle-icon"></span></label></div></div></div></li>
@@ -205,12 +205,12 @@
         <div class="list list-strong list-dividers inset sortable sortable-enabled" id="rlist"><ul>
           ${items.map((it, i) => `<li class="swipeout" data-i="${i}"><div class="swipeout-content"><div class="item-content"><div class="item-inner">
               <div class="item-title">${esc(it.title)}</div>
-              <div class="item-after"><span class="r-time num ${it.min ? '' : 'empty'}" data-rtime="${i}">${it.min ? L.fmtDur(it.min) : '+ time'}</span></div></div></div>
+              <div class="item-after"><span class="r-time num ${it.min ? '' : 'none'}" data-rtime="${i}">${it.min ? L.fmtDur(it.min) : 'Add time'}</span></div></div></div>
               <div class="r-wheel" data-rw="${i}" hidden><div></div></div></div>
               <div class="sortable-handler"></div>
               <div class="swipeout-actions-right"><a class="swipeout-delete" data-confirm="false">Delete</a></div></li>`).join('')}
         </ul></div>
-        <div class="list list-strong list-dividers inset" style="margin-top:-20px"><ul><li><a class="item-content item-link no-chevron" data-radd><div class="item-media"><i class="f7-icons orange" style="font-size:22px">plus_circle_fill</i></div><div class="item-inner"><div class="item-title orange">Add Item</div></div></a></li></ul></div>
+        <div class="list list-strong list-dividers inset" style="margin-top:-20px"><ul><li><a class="item-content item-link no-chevron" data-radd><div class="item-media"><i class="f7-icons green" style="font-size:22px">plus_circle_fill</i></div><div class="item-inner"><div class="item-title green">Add Item</div></div></a></li></ul></div>
         <div class="block-footer" style="margin:-24px 32px 24px">Drag to reorder. Swipe left to delete. Tap the time to set how long it takes.</div>
         <div class="block-title">Notifications</div>
         <div class="list list-strong list-dividers inset"><ul><li><a class="item-content item-link no-chevron" data-push><div class="item-inner"><div class="item-title">Notifications</div><div class="item-after" id="push-state">${window.Push ? window.Push.label() : ''}</div></div></a></li></ul></div>
@@ -238,7 +238,7 @@
             cols: [{ values: vals, displayValues: vals.map((m) => (m ? `${m} min` : 'No time')) }],
             on: { change(_p, v) {
               const m = +v[0] || null;
-              t.textContent = m ? L.fmtDur(m) : '+ time'; t.classList.toggle('empty', !m);
+              t.textContent = m ? L.fmtDur(m) : 'Add time'; t.classList.toggle('none', !m);
               clearTimeout(timer); timer = setTimeout(() => save(S.routines[routineTab].map((x, k) => (k === i ? { ...x, min: m } : x))), 250);
             } },
           }));
