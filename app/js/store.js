@@ -23,6 +23,7 @@
     { n: 10, title: 'Multiplayer Sync', start: '2026-11-09', end: '2026-11-09', note: 'Cars + NPCs for both players' },
     { n: 11, title: 'Buffer', start: '2026-11-10', end: '2026-11-13', note: 'Phone tests, bug fixes' },
   ];
+  const OWNER = '00000000-0000-0000-0000-00000000c0de';
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
   const DEFAULT_ROUTINES = {
     morning: ['Drink water', 'Toilet', 'Wash face', 'Brush teeth', 'Get dressed', 'Breakfast']
@@ -102,14 +103,10 @@
   async function cloudInit() {
     const cfg = window.CRUNCH_CONFIG || {};
     if (!cfg.supabaseUrl) throw new Error('missing config');
-    sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true } });
-    const { data } = await sb.auth.getSession();
-    state.user = data.session ? data.session.user : null;
-    sb.auth.onAuthStateChange((_e, session) => {
-      const had = !!state.user; state.user = session ? session.user : null;
-      if (!had && state.user) cloudLoad().then(emit);
-    });
-    if (state.user) await cloudLoad();
+    // One person uses Crunch, so there is no sign-in: every row belongs to the same owner id (see supabase/no-login.sql).
+    sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    state.user = { id: OWNER };
+    await cloudLoad();
   }
   async function cloudLoad() {
     const from = L.addDays(today(), -30);
@@ -185,9 +182,6 @@
       if (DEMO) demoLoad(); else await cloudInit();
       emit();
     },
-    async signIn(email, password) { return sb.auth.signInWithPassword({ email, password }); },
-    async signUp(email, password) { return sb.auth.signUp({ email, password }); },
-    async signOut() { await sb.auth.signOut(); location.reload(); },
     client: () => sb,
 
     saveBlock(b) {

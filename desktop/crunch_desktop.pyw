@@ -2,7 +2,7 @@
 
 One light process (tkinter + Pillow). Reads the same Supabase data as the phone app.
 Click the capsule -> opens the full app in a phone-sized window. Right-click -> menu.
-Run:  pythonw crunch_desktop.pyw          (first run asks for your Crunch email + password)
+Run:  pythonw crunch_desktop.pyw          (no sign-in: reads your Crunch data directly)
       python  crunch_desktop.pyw --demo   (fake data, no login: for screenshots/tests)
 """
 import ctypes
@@ -18,7 +18,6 @@ import urllib.request
 import winreg
 from datetime import datetime, timedelta
 import tkinter as tk
-from tkinter import simpledialog
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(os.environ.get('APPDATA', HERE), 'Crunch')
@@ -42,39 +41,16 @@ def iso(s):
 
 
 class Cloud:
-    def __init__(self):
-        self.session_file = os.path.join(DATA, 'session.json')
-        self.session = json.load(open(self.session_file)) if os.path.exists(self.session_file) else None
+    """Reads Crunch's rows with the project key: one person uses Crunch, so there is no sign-in."""
 
-    def _req(self, method, path, body=None, auth=True):
+    def _req(self, method, path, body=None):
         url = CFG['supabaseUrl'] + path
         headers = {'apikey': CFG['supabaseKey'], 'Content-Type': 'application/json'}
-        if auth and self.session:
-            headers['Authorization'] = 'Bearer ' + self.session['access_token']
         req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers, method=method)
         with urllib.request.urlopen(req, timeout=15) as r:
             return json.loads(r.read() or b'null')
 
-    def _save(self, s):
-        self.session = {'access_token': s['access_token'], 'refresh_token': s['refresh_token'], 'expires_at': time.time() + s['expires_in'] - 60}
-        json.dump(self.session, open(self.session_file, 'w'))
-
-    def login(self, ask):
-        email = ask('Crunch', 'Your Crunch email:')
-        if not email:
-            return False
-        pw = ask('Crunch', 'Your Crunch password:', show='*')
-        if not pw:
-            return False
-        self._save(self._req('POST', '/auth/v1/token?grant_type=password', {'email': email.strip(), 'password': pw}, auth=False))
-        return True
-
-    def ensure(self):
-        if self.session and time.time() > self.session['expires_at']:
-            self._save(self._req('POST', '/auth/v1/token?grant_type=refresh_token', {'refresh_token': self.session['refresh_token']}, auth=False))
-
     def load(self):
-        self.ensure()
         today = datetime.now().date()
         y = today - timedelta(days=1)
         kv = self._req('GET', '/rest/v1/kv?select=key,data')
@@ -338,8 +314,6 @@ class Capsule:
             self.err = None
         except urllib.error.HTTPError as e:
             self.err = f'Sync error {e.code}'
-            if e.code == 401 and self.cloud:
-                self.cloud.session = None
         except Exception:
             self.err = 'Offline'
 
@@ -392,11 +366,6 @@ class Capsule:
         self.root.after(1000, self.draw)
 
     def run(self):
-        if self.cloud and not self.cloud.session:
-            ok = self.cloud.login(lambda t, p, **kw: simpledialog.askstring(t, p, parent=self.root, **kw))
-            if not ok:
-                self.root.destroy()
-                return
         self.fetch()
         self.poll()
         self.draw()

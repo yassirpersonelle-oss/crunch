@@ -226,11 +226,7 @@
         <div class="block-footer" style="margin:-24px 32px 24px">Drag to reorder. Swipe left to delete. Tap the time to set how long it takes.</div>
         <div class="block-title">Notifications</div>
         <div class="list list-strong list-dividers inset"><ul><li><a class="item-content item-link no-chevron" data-push><div class="item-inner"><div class="item-title">Notifications</div><div class="item-after" id="push-state">${window.Push ? window.Push.label() : ''}</div></div></a></li></ul></div>
-        <div class="block-title">Account</div>
-        <div class="list list-strong list-dividers inset"><ul>
-          <li class="item-content"><div class="item-inner"><div class="item-title">Signed in</div><div class="item-after">${esc(S.user ? S.user.email : '')}</div></div></li>
-          ${Store.DEMO ? '' : '<li><a class="item-content item-link no-chevron" data-signout><div class="item-inner"><div class="item-title red">Sign Out</div></div></a></li>'}
-        </ul></div><div style="height:30px"></div>`;
+        <div style="height:30px"></div>`;
       body.querySelectorAll('[data-theme-pick]').forEach((d) => d.addEventListener('click', () => {
         Store.setKV('settings', { ...S.settings, theme: d.dataset.themePick });
         applyTheme(); window.FX.Sound.tap(); render();
@@ -272,7 +268,6 @@
         app.dialog.prompt('', 'New routine item', (v) => { if (v && v.trim()) { save([...S.routines[routineTab], { id: Store.uid(), title: v.trim(), min: null }]); render(); } });
       });
       body.querySelector('[data-push]').addEventListener('click', async () => { if (window.Push) { await window.Push.enable(); render(); } });
-      const so = body.querySelector('[data-signout]'); if (so) so.addEventListener('click', () => Store.signOut());
     }
     render();
     popup.open();

@@ -1,4 +1,4 @@
-// Crunch - bootstrap: Framework7 app, routing of taps, render loop, login, morning auto-start.
+// Crunch - bootstrap: Framework7 app, routing of taps, render loop, morning auto-start.
 (function () {
   const L = window.Logic, Store = window.Store, S = Store.state, UI = window.UI;
   const params = new URLSearchParams(location.search);
@@ -73,48 +73,9 @@
     if (activeTab === 'week') window.Week.scrollToNow();
   }));
 
-  // ---------- login (cloud mode) ----------
-  function login() {
-    const el = document.createElement('div');
-    el.className = 'login';
-    el.innerHTML = `<img src="icons/icon-192.png" alt=""><h1>Crunch</h1><p id="msg">Sign in to sync your iPhone and PC.</p>
-      <input id="em" type="email" placeholder="Email" autocomplete="username" inputmode="email" autocapitalize="off">
-      <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
-      <button class="btn big fill" id="go">Sign In</button>
-      <button class="link-btn" id="new">Create an account</button><div class="err" id="err"></div>`;
-    document.body.appendChild(el);
-    const $ = (s) => el.querySelector(s), err = $('#err');
-    let creating = false;
-    $('#new').addEventListener('click', () => {
-      creating = !creating; err.textContent = '';
-      $('#msg').textContent = creating ? 'Choose a password of at least 6 characters.' : 'Sign in to sync your iPhone and PC.';
-      $('#go').textContent = creating ? 'Create Account' : 'Sign In';
-      $('#new').textContent = creating ? 'I already have an account' : 'Create an account';
-      $('#pw').autocomplete = creating ? 'new-password' : 'current-password';
-    });
-    const go = async () => {
-      const email = $('#em').value.trim(), pw = $('#pw').value;
-      err.textContent = '';
-      if (!email || !pw) { err.textContent = 'Enter your email and password.'; return; }
-      $('#go').disabled = true;
-      const { data, error } = creating ? await Store.signUp(email, pw) : await Store.signIn(email, pw);
-      $('#go').disabled = false;
-      if (error) { err.textContent = error.message === 'Invalid login credentials' ? 'Wrong email or password.' : error.message; return; }
-      if (creating && !data.session) {  // the project asks to confirm the email first
-        $('#new').click();
-        $('#msg').textContent = `Open the email sent to ${email}, tap the link, then sign in here.`;
-        return;
-      }
-      location.reload();  // start fresh with the signed-in user
-    };
-    $('#go').addEventListener('click', go);
-    $('#pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  }
-
   // ---------- start ----------
   Store.on(() => render());
   Store.init().then(() => {
-    if (!Store.DEMO && !S.user) login();
     window.Week.init();
     render();
     setInterval(() => { if (activeTab === 'today') UI.tickToday(); }, 1000);
