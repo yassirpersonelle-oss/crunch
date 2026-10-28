@@ -120,7 +120,9 @@ body { font-family: var(--f7-font-family); -webkit-font-smoothing: antialiased; 
 .login h1 { font-family: var(--display); font-size: 28px; margin: 18px 0 6px; }
 .login p { color: var(--label2); font-size: 15px; margin: 0 0 24px; max-width: 300px; }
 .login input { width: 100%; max-width: 320px; height: 48px; border-radius: 12px; border: 0; background: var(--card); color: #fff; font: inherit; font-size: 17px; padding: 0 14px; text-align: center; outline: none; }
-.login .btn { width: 100%; max-width: 320px; flex: none; margin-top: 12px; }
+.login input + input { margin-top: 10px; }
+.login .btn { width: 100%; max-width: 320px; flex: none; margin-top: 16px; }
+.login .link-btn { background: none; border: 0; color: var(--accent); font: inherit; font-size: 15px; margin-top: 14px; padding: 8px; }
 .login .err { color: var(--red); font-size: 13px; min-height: 18px; margin-top: 8px; }
 
 /* settings routine rows */

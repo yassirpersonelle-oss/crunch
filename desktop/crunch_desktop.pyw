@@ -2,7 +2,7 @@
 
 One light process (tkinter + Pillow). Reads the same Supabase data as the phone app.
 Click the capsule -> opens the full app in a phone-sized window. Right-click -> menu.
-Run:  pythonw crunch_desktop.pyw          (first run asks for your email + the 6-digit code)
+Run:  pythonw crunch_desktop.pyw          (first run asks for your Crunch email + password)
       python  crunch_desktop.pyw --demo   (fake data, no login: for screenshots/tests)
 """
 import ctypes
@@ -60,14 +60,13 @@ class Cloud:
         json.dump(self.session, open(self.session_file, 'w'))
 
     def login(self, ask):
-        email = ask('Crunch', 'Your email (a 6-digit code will be sent):')
+        email = ask('Crunch', 'Your Crunch email:')
         if not email:
             return False
-        self._req('POST', '/auth/v1/otp', {'email': email, 'create_user': False}, auth=False)
-        code = ask('Crunch', f'Code sent to {email}:')
-        if not code:
+        pw = ask('Crunch', 'Your Crunch password:', show='*')
+        if not pw:
             return False
-        self._save(self._req('POST', '/auth/v1/verify', {'type': 'email', 'email': email, 'token': code.strip()}, auth=False))
+        self._save(self._req('POST', '/auth/v1/token?grant_type=password', {'email': email.strip(), 'password': pw}, auth=False))
         return True
 
     def ensure(self):
@@ -394,7 +393,7 @@ class Capsule:
 
     def run(self):
         if self.cloud and not self.cloud.session:
-            ok = self.cloud.login(lambda t, p: simpledialog.askstring(t, p, parent=self.root))
+            ok = self.cloud.login(lambda t, p, **kw: simpledialog.askstring(t, p, parent=self.root, **kw))
             if not ok:
                 self.root.destroy()
                 return

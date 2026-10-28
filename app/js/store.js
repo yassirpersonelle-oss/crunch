@@ -185,8 +185,8 @@
       if (DEMO) demoLoad(); else await cloudInit();
       emit();
     },
-    async sendCode(email) { return sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }); },
-    async verifyCode(email, token) { return sb.auth.verifyOtp({ email, token, type: 'email' }); },
+    async signIn(email, password) { return sb.auth.signInWithPassword({ email, password }); },
+    async signUp(email, password) { return sb.auth.signUp({ email, password }); },
     async signOut() { await sb.auth.signOut(); location.reload(); },
     client: () => sb,
 

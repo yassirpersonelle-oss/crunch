@@ -77,28 +77,38 @@
   function login() {
     const el = document.createElement('div');
     el.className = 'login';
-    el.innerHTML = `<img src="icons/icon-192.png" alt=""><h1>Crunch</h1><p>Sign in with your email. We'll send you a 6-digit code.</p>
-      <input id="em" type="email" placeholder="Email" autocomplete="email" inputmode="email">
-      <button class="btn big fill" id="go">Continue</button><div class="err" id="err"></div>`;
+    el.innerHTML = `<img src="icons/icon-192.png" alt=""><h1>Crunch</h1><p id="msg">Sign in to sync your iPhone and PC.</p>
+      <input id="em" type="email" placeholder="Email" autocomplete="username" inputmode="email" autocapitalize="off">
+      <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+      <button class="btn big fill" id="go">Sign In</button>
+      <button class="link-btn" id="new">Create an account</button><div class="err" id="err"></div>`;
     document.body.appendChild(el);
-    let email = null;
-    const err = el.querySelector('#err');
-    el.querySelector('#go').addEventListener('click', async () => {
-      const inp = el.querySelector('#em');
-      err.textContent = '';
-      if (!email) {
-        email = inp.value.trim(); if (!email) return;
-        const { error } = await Store.sendCode(email);
-        if (error) { err.textContent = error.message; email = null; return; }
-        el.querySelector('p').textContent = `Enter the code sent to ${email}.`;
-        inp.value = ''; inp.type = 'text'; inp.placeholder = '123456'; inp.inputMode = 'numeric'; inp.autocomplete = 'one-time-code';
-        el.querySelector('#go').textContent = 'Sign In';
-      } else {
-        const { error } = await Store.verifyCode(email, inp.value.trim());
-        if (error) { err.textContent = error.message; return; }
-        el.remove();
-      }
+    const $ = (s) => el.querySelector(s), err = $('#err');
+    let creating = false;
+    $('#new').addEventListener('click', () => {
+      creating = !creating; err.textContent = '';
+      $('#msg').textContent = creating ? 'Choose a password of at least 6 characters.' : 'Sign in to sync your iPhone and PC.';
+      $('#go').textContent = creating ? 'Create Account' : 'Sign In';
+      $('#new').textContent = creating ? 'I already have an account' : 'Create an account';
+      $('#pw').autocomplete = creating ? 'new-password' : 'current-password';
     });
+    const go = async () => {
+      const email = $('#em').value.trim(), pw = $('#pw').value;
+      err.textContent = '';
+      if (!email || !pw) { err.textContent = 'Enter your email and password.'; return; }
+      $('#go').disabled = true;
+      const { data, error } = creating ? await Store.signUp(email, pw) : await Store.signIn(email, pw);
+      $('#go').disabled = false;
+      if (error) { err.textContent = error.message === 'Invalid login credentials' ? 'Wrong email or password.' : error.message; return; }
+      if (creating && !data.session) {  // the project asks to confirm the email first
+        $('#new').click();
+        $('#msg').textContent = `Open the email sent to ${email}, tap the link, then sign in here.`;
+        return;
+      }
+      location.reload();  // start fresh with the signed-in user
+    };
+    $('#go').addEventListener('click', go);
+    $('#pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   }
 
   // ---------- start ----------
