@@ -10,6 +10,9 @@ t('hours left', () => {
   assert.strictEqual(h.todayLeftMs / 3600000, 12.5);
   // after bedtime counts 0 for today
   assert.strictEqual(L.hoursLeft(new Date(2026, 9, 28, 23, 30), S).todayLeftMs, 0);
+  // bedtime after midnight (01:00) counts remaining time across midnight
+  const lateBed = { ...S, bed: '01:00' };
+  assert.strictEqual(L.hoursLeft(new Date(2026, 9, 28, 22, 0), lateBed).todayLeftMs / 3600000, 3);
 });
 t('day number', () => assert.deepStrictEqual(L.dayNumber(new Date(2026, 9, 28, 12), S), { n: 1, total: 18 }));
 
@@ -55,8 +58,8 @@ t('reorder keeps the slots and the walls', () => {
   const bl = [B('a', '09:00', 60), B('b', '10:00', 30), B('c', '10:30', 60), B('gym', '11:00', 60, { fixed: true }), B('d', '13:00', 30)];
   const r = L.reorder(bl, '2026-10-28', ['c', 'a', 'b']);
   assert.strictEqual(L.hmStr(r.c), '09:00');
-  assert.strictEqual(L.hmStr(r.a), '10:00'); // ends exactly when the 11:00 wall starts
-  assert.strictEqual(L.hmStr(r.b), '12:00'); // 11:00 would sit on the wall -> after it
+  assert.strictEqual(L.hmStr(r.a), '10:00');
+  assert.strictEqual(L.hmStr(r.b), '12:00');
   assert.strictEqual(L.hmStr(r.d), '13:00');
 });
 t('gym slides when not fixed', () => {
@@ -68,5 +71,19 @@ t('a category off "counts as work" leaves work time out', () => {
   const bl = [B('a', '08:00', 60, { actualMs: 60 * 60000, doneAt: d(9, 0), cat: 'read' }), B('b', '09:00', 30, { actualMs: 30 * 60000, doneAt: d(9, 30), cat: 'work' })];
   const s = L.dayStats('2026-10-28', bl, { '2026-10-28': { upAt: d(7, 0) } }, { ...S, categories: [{ id: 'read', work: false }, { id: 'work', work: true }] }, new Date(2026, 9, 28, 12, 0));
   assert.strictEqual(Math.round(s.workMin), 30);
+});
+t('excused idle minutes reduce wasted time + planVsActual compares blocks', () => {
+  const d = (h, m) => new Date(2026, 9, 28, h, m).toISOString();
+  const bl = [
+    B('a', '08:00', 60, { title: 'Task A', actualMs: 50 * 60000, doneAt: d(8, 50) }),
+    B('b', '09:00', 30, { title: 'Gym', kind: 'gym', actualMs: 30 * 60000, doneAt: d(9, 30) }),
+  ];
+  assert.strictEqual(L.combo(bl, '2026-10-28'), 2);
+  const s = L.dayStats('2026-10-28', bl, { '2026-10-28': { upAt: d(7, 0), idleExcusedMin: 60 } }, S, new Date(2026, 9, 28, 12, 0));
+  assert.strictEqual(Math.round(s.wastedMin), 300 - 50 - 30 - 60 - 90);
+  const pva = L.planVsActual('2026-10-28', bl, new Date(2026, 9, 28, 12, 0));
+  assert.strictEqual(pva.length, 2);
+  assert.strictEqual(pva[0].diffMin, -10);
+  assert.strictEqual(pva[0].onTime, true);
 });
 console.log(`${ok} passed`);

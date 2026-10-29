@@ -28,6 +28,7 @@
   function start(id) {
     const n = Store.now(); stopAll(n, id);
     const b = S.blocks.find((x) => x.id === id); if (!b) return;
+    if (S.settings.idleSnoozeUntil) Store.setKV('settings', { ...S.settings, idleSnoozeUntil: null });
     Store.saveBlock({ ...b, runningSince: n.toISOString(), doneAt: null });
     Sound.pop();
   }
@@ -38,18 +39,21 @@
   }
   function done(id) {
     const n = Store.now(), b = S.blocks.find((x) => x.id === id); if (!b) return;
-    const nb = { ...b, actualMs: L.actualMs(b, n), runningSince: null, doneAt: n.toISOString() };
+    const act = L.actualMs(b, n) || b.expectedMin * L.MIN;
+    const nb = { ...b, actualMs: act, runningSince: null, doneAt: n.toISOString() };
     Store.saveBlock(nb);
-    if (nb.kind !== 'task') { Sound.check(); return; }
     const diffMin = Math.round((nb.actualMs - nb.expectedMin * L.MIN) / L.MIN);
     window.UI.celebrate(L.onTime(nb), diffMin, L.combo(S.blocks, nb.date), nb);
   }
-  // swipe right: finish it. A task that never ran counts its planned time (it was done off the timer).
+  // swipe right: finish it. A task that never ran counts its planned time (it was done off the timer) and celebrates.
   function complete(id) {
     const b = S.blocks.find((x) => x.id === id); if (!b || b.doneAt) return;
     if (b.runningSince) return done(id);
-    Store.saveBlock({ ...b, actualMs: b.actualMs || b.expectedMin * L.MIN, runningSince: null, doneAt: Store.now().toISOString() });
-    Sound.check();
+    const n = Store.now();
+    const nb = { ...b, actualMs: b.actualMs || b.expectedMin * L.MIN, runningSince: null, doneAt: n.toISOString() };
+    Store.saveBlock(nb);
+    const diffMin = Math.round((nb.actualMs - nb.expectedMin * L.MIN) / L.MIN);
+    window.UI.celebrate(L.onTime(nb), diffMin, L.combo(S.blocks, nb.date), nb);
   }
   // swipe left: delete, with 4 s to take it back
   function remove(id) {
@@ -67,16 +71,17 @@
   function applyTime(b, newStart, newLen) {
     const ps = newStart == null ? b.plannedStart : L.hmStr(newStart);
     if (!ps) { Store.saveBlock({ ...b, expectedMin: newLen }); return; }
+    const orig = b.origStart || b.plannedStart || ps;
     const blocks = S.blocks.map((x) => (x.id === b.id ? { ...x, plannedStart: x.plannedStart || ps } : x));
     const out = L.ripple(blocks, b.date, b.id, L.hm(ps), newLen);
     const changed = [];
     for (const x of S.blocks) {
       if (x.date !== b.date || !(x.id in out)) continue;
       const ns = L.hmStr(out[x.id]);
-      if (x.id === b.id) changed.push({ ...x, plannedStart: ns, expectedMin: newLen, origStart: null });
-      else if (ns !== x.plannedStart) changed.push({ ...x, plannedStart: ns });
+      if (x.id === b.id) changed.push({ ...x, plannedStart: ns, expectedMin: newLen, origStart: orig });
+      else if (ns !== x.plannedStart) changed.push({ ...x, origStart: x.origStart || x.plannedStart, plannedStart: ns });
     }
-    if (!changed.some((x) => x.id === b.id)) changed.push({ ...b, plannedStart: ps, expectedMin: newLen });
+    if (!changed.some((x) => x.id === b.id)) changed.push({ ...b, plannedStart: ps, expectedMin: newLen, origStart: orig });
     Store.saveBlocks(changed);
   }
   function undo(id) {
@@ -86,8 +91,7 @@
     const key = Store.today();
     const planned = S.blocks.find((b) => b.date === key && b.kind === 'gym' && !b.doneAt);
     if (planned) return start(planned.id);
-    const n = Store.now();
-    const b = { id: Store.uid(), date: key, kind: 'gym', title: 'Gym', plannedStart: null, expectedMin: 60, fixed: false };
+    const b = { id: Store.uid(), date: key, kind: 'gym', cat: 'gym', title: 'Gym', plannedStart: null, expectedMin: 60, fixed: false };
     Store.saveBlock(b); start(b.id);
   }
 
@@ -95,7 +99,11 @@
     const app = window.app, run = !!b.runningSince, isDone = !!b.doneAt;
     const buttons = [];
     if (!isDone && !run) buttons.push({ text: b.kind === 'gym' ? 'Start Gym' : 'Start', bold: true, onClick: () => start(b.id) });
-    if (run) buttons.push({ text: 'Done', bold: true, onClick: () => done(b.id) }, { text: 'Pause', onClick: () => pause(b.id) });
+    if (run) {
+      buttons.push({ text: 'Done', bold: true, onClick: () => done(b.id) });
+      buttons.push({ text: 'Extend time / What’s left…', onClick: () => extendSheet(b) });
+      buttons.push({ text: 'Pause', onClick: () => pause(b.id) });
+    }
     if (!isDone && !run && b.actualMs) buttons.push({ text: 'Mark Done', onClick: () => done(b.id) });
     if (isDone) buttons.push({ text: 'Mark Not Done', onClick: () => undo(b.id) });
     buttons.push({ text: 'Edit', onClick: () => taskEditor({ block: b }) });
@@ -110,24 +118,285 @@
       [{ text: 'Cancel', bold: true }]] }).open();
   }
 
+  // ---------- Extend Task & "What do I have left to do?" sheet (Report #9) ----------
+  function extendSheet(blockOrId) {
+    const b0 = typeof blockOrId === 'string' ? S.blocks.find((x) => x.id === blockOrId) : blockOrId;
+    if (!b0) return;
+    const app = window.app;
+    let addMin = 15;
+    const popup = app.popup.create({
+      swipeToClose: true, push: true,
+      content: `<div class="popup extend-popup"><div class="view"><div class="page">
+        <div class="navbar"><div class="navbar-bg"></div><div class="navbar-inner">
+          <div class="left"><a class="link popup-close">Cancel</a></div>
+          <div class="title">Extend Task</div>
+          <div class="right"><a class="link" data-ext-save style="font-weight:600">Extend</a></div>
+        </div></div>
+        <div class="page-content" id="ext-body"></div>
+      </div></div></div>`,
+      on: { closed(p) { setTimeout(() => p.destroy()); } },
+    });
+    const body = popup.el.querySelector('#ext-body');
+    const nowMin = () => Math.round(L.minOfDay(Store.now()));
+    function renderExt() {
+      const b = S.blocks.find((x) => x.id === b0.id) || b0;
+      const n = Store.now();
+      const actMin = Math.round(L.actualMs(b, n) / L.MIN);
+      const baseMin = Math.max(b.expectedMin, actMin);
+      const newTotal = baseMin + addMin;
+      const finishClock = L.hmStr(L.minOfDay(n) + (newTotal - actMin));
+      const subs = b.subs || [];
+      body.innerHTML = `
+        <div class="ext-hero">
+          <div class="ext-title">${esc(b.title)}</div>
+          <div class="ext-sub num">Spent ${L.fmtDur(actMin)} · New total <b>${L.fmtDur(newTotal)}</b> · Done at <b class="green">${finishClock}</b></div>
+          <div class="ext-chips">
+            ${[10, 15, 30, 45, 60].map((m) => `<button class="pill ext-chip ${addMin === m ? 'green' : ''}" data-addm="${m}">+${m} min</button>`).join('')}
+          </div>
+        </div>
+        <div class="block-title">What do you have left to do?</div>
+        <div class="ext-subs-wrap" style="margin:0 16px">
+          ${subs.length ? `<ul class="fo-subs">${subs.map((x) => `<li class="fs ${x.done != null ? 'done' : ''}">
+            <a class="fs-chk" data-echk="${x.id}">${x.done != null ? '<i class="f7-icons">checkmark_alt</i>' : ''}</a>
+            <div class="fs-main"><div class="fs-t">${esc(x.t)}</div>
+              <div class="fs-time num"><span>${L.hmStr(x.s)} → ${L.hmStr(x.s + x.d)}</span> · <span>${L.fmtDur(x.d)}</span></div></div>
+            <a class="fs-del" data-edel="${x.id}"><i class="f7-icons">xmark</i></a>
+          </li>`).join('')}</ul>` : '<div class="empty" style="margin:0 0 12px">Break down what is left so you finish strong.</div>'}
+          <div class="qa open fo-add" style="margin-top:12px">
+            <input id="ext-sub-t" type="text" placeholder="Add remaining step…" autocomplete="off" enterkeyhint="done">
+            <div class="qa-btns"><span></span><button class="btn fill qa-go" id="ext-sub-go">Add step</button></div>
+          </div>
+        </div>`;
+      body.querySelectorAll('[data-addm]').forEach((btn) => btn.addEventListener('click', () => {
+        addMin = +btn.dataset.addm;
+        Sound.tap();
+        renderExt();
+      }));
+      body.querySelectorAll('[data-echk]').forEach((el) => el.addEventListener('click', () => {
+        const cur = S.blocks.find((x) => x.id === b.id) || b;
+        const list = (cur.subs || []).map((x) => (x.id === el.dataset.echk ? { ...x, done: x.done == null ? nowMin() : null } : x));
+        Store.saveBlock({ ...cur, subs: list });
+        Sound.check();
+        renderExt();
+      }));
+      body.querySelectorAll('[data-edel]').forEach((el) => el.addEventListener('click', () => {
+        const cur = S.blocks.find((x) => x.id === b.id) || b;
+        Store.saveBlock({ ...cur, subs: (cur.subs || []).filter((x) => x.id !== el.dataset.edel) });
+        Sound.tap();
+        renderExt();
+      }));
+      const inp = body.querySelector('#ext-sub-t');
+      const addSub = () => {
+        const title = (inp.value || '').trim();
+        if (!title) { inp.focus(); return; }
+        const cur = S.blocks.find((x) => x.id === b.id) || b;
+        const list = cur.subs || [];
+        const s = list.length ? Math.max(nowMin(), list[list.length - 1].s + list[list.length - 1].d) : nowMin();
+        Store.saveBlock({ ...cur, subs: [...list, { id: Store.uid(), t: title, s, d: 15, done: null }] });
+        Sound.pop();
+        renderExt();
+      };
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSub(); } });
+      body.querySelector('#ext-sub-go').addEventListener('click', addSub);
+    }
+    popup.el.querySelector('[data-ext-save]').addEventListener('click', () => {
+      const b = S.blocks.find((x) => x.id === b0.id) || b0;
+      const actMin = Math.round(L.actualMs(b, Store.now()) / L.MIN);
+      const newLen = Math.max(b.expectedMin, actMin) + addMin;
+      applyTime(b, null, newLen);
+      Sound.check();
+      popup.close();
+    });
+    renderExt();
+    popup.open();
+  }
+
+  // ---------- Quick Sleep / Wake Customizer (Report #9) ----------
+  function sleepWakeSheet() {
+    const app = window.app;
+    const popup = app.popup.create({
+      swipeToClose: true, push: true,
+      content: `<div class="popup"><div class="view"><div class="page">
+        <div class="navbar"><div class="navbar-bg"></div><div class="navbar-inner">
+          <div class="left"><a class="link popup-close">Cancel</a></div>
+          <div class="title">Sleep & Wake</div>
+          <div class="right"><a class="link popup-close" style="font-weight:600">Done</a></div>
+        </div></div>
+        <div class="page-content">
+          <div class="block-title">Customize Schedule</div>
+          <div class="list list-strong list-dividers inset ilabels"><ul>
+            <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Wake up</div><div class="item-input-wrap"><input type="time" name="wake" value="${S.settings.wake}"></div></div></li>
+            <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Bedtime</div><div class="item-input-wrap"><input type="time" name="bed" value="${S.settings.bed}"></div></div></li>
+          </ul></div>
+          <div class="block-footer" style="margin:0 32px">Crunch surfaces "Finish the Day" 1 hour before your bedtime and subtracts sleep hours from your release countdown.</div>
+        </div></div></div></div>`,
+      on: { closed(p) { setTimeout(() => p.destroy()); } },
+    });
+    popup.el.querySelectorAll('input[type=time]').forEach((inp) => inp.addEventListener('change', () => {
+      Store.setKV('settings', { ...S.settings, [inp.name]: inp.value });
+      Sound.tap();
+    }));
+    popup.open();
+  }
+
+  // ---------- Retroactive Idle Explanation & Backfill (Report #3) ----------
+  function idleExplainSheet() {
+    const app = window.app, n = Store.now(), key = Store.today(), day = S.days[key] || {};
+    const marks = [day.upAt, ...S.blocks.filter((b) => b.date === key).flatMap((b) => [b.doneAt, b.pausedAt])].filter(Boolean).map((x) => new Date(x));
+    const lastMark = marks.length ? new Date(Math.max(...marks)) : new Date(n.getTime() - 30 * L.MIN);
+    const idleMin = Math.max(5, Math.round((n - lastMark) / L.MIN));
+    const startHm = `${L.pad(lastMark.getHours())}:${L.pad(lastMark.getMinutes())}`;
+    const openTasks = dayBlocks(key).filter((b) => !b.doneAt);
+    let mode = 'task'; // 'task' | 'break'
+    let pickedId = openTasks[0] ? openTasks[0].id : 'new';
+    let durMin = idleMin;
+    let finishState = 'running'; // 'running' | 'done'
+
+    const popup = app.popup.create({
+      swipeToClose: true, push: true,
+      content: `<div class="popup"><div class="view"><div class="page">
+        <div class="navbar"><div class="navbar-bg"></div><div class="navbar-inner">
+          <div class="left"><a class="link popup-close">Cancel</a></div>
+          <div class="title">Idle ${L.fmtDur(idleMin)}</div>
+          <div class="right"><a class="link" data-idle-save style="font-weight:600">Save</a></div>
+        </div></div>
+        <div class="page-content" id="idle-exp-body"></div>
+      </div></div></div>`,
+      on: { closed(p) { setTimeout(() => p.destroy()); } },
+    });
+    const body = popup.el.querySelector('#idle-exp-body');
+    function renderBody() {
+      body.innerHTML = `
+        <div class="seg-wrap" style="margin-top:18px"><div class="segmented segmented-strong">
+          <a class="button ${mode === 'task' ? 'button-active' : ''}" data-imode="task">Forgot to start task</a>
+          <a class="button ${mode === 'break' ? 'button-active' : ''}" data-imode="break">Explain break / IRL</a>
+          <span class="segmented-highlight"></span></div></div>
+        <div class="block-footer" style="margin:10px 32px 6px">Idle since <b>${startHm}</b> (${L.fmtDur(idleMin)} ago)</div>
+        ${mode === 'task' ? `
+          <div class="block-title">Which task were you doing?</div>
+          <div class="list list-strong list-dividers inset"><ul>
+            ${openTasks.map((b) => `<li><label class="item-radio item-content"><input type="radio" name="itask" value="${b.id}" ${pickedId === b.id ? 'checked' : ''}><i class="icon icon-radio"></i><div class="item-inner"><div class="item-title">${esc(b.title)}</div><div class="item-after num">${L.fmtDur(b.expectedMin)}</div></div></label></li>`).join('')}
+            <li><label class="item-radio item-content"><input type="radio" name="itask" value="new" ${pickedId === 'new' ? 'checked' : ''}><i class="icon icon-radio"></i><div class="item-inner"><div class="item-title green">+ New task…</div></div></label></li>
+          </ul></div>
+          <div class="list list-strong list-dividers inset ilabels" ${pickedId === 'new' ? '' : 'hidden'} id="inew-wrap"><ul>
+            <li class="item-content item-input"><div class="item-inner"><div class="item-input-wrap"><input type="text" id="inew-title" placeholder="What were you working on?" class="title-in"></div></div></li>
+          </ul></div>
+          <div class="list list-strong list-dividers inset ilabels"><ul>
+            <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Minutes spent</div><div class="item-input-wrap"><input type="number" id="idur-min" min="1" max="${idleMin + 120}" value="${durMin}"></div></div></li>
+            <li><div class="item-content"><div class="item-inner"><div class="item-title">Status now</div><div class="item-after">
+              <div class="segmented segmented-strong" style="width:190px">
+                <a class="button ${finishState === 'running' ? 'button-active' : ''}" data-fstate="running">Still going</a>
+                <a class="button ${finishState === 'done' ? 'button-active' : ''}" data-fstate="done">Finished</a>
+              </div>
+            </div></div></div></li>
+          </ul></div>
+        ` : `
+          <div class="block-title">What was going on?</div>
+          <div class="list list-strong list-dividers inset"><ul>
+            <li class="item-content item-input"><div class="item-inner"><div class="item-input-wrap">
+              <input type="text" id="ibreak-note" placeholder="e.g. Nap, Class, Family, Meal…" class="title-in">
+            </div></div></li>
+            <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">Minutes to excuse</div><div class="item-input-wrap"><input type="number" id="ibreak-min" min="1" max="${idleMin}" value="${idleMin}"></div></div></li>
+          </ul></div>
+          <div class="block-footer" style="margin:0 32px">Excused idle time is logged on your daily timeline and won't count against you as Wasted time.</div>
+        `}`;
+      body.querySelectorAll('[data-imode]').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.imode; Sound.tap(); renderBody(); }));
+      body.querySelectorAll('input[name="itask"]').forEach((r) => r.addEventListener('change', () => {
+        pickedId = r.value;
+        const w = body.querySelector('#inew-wrap');
+        if (w) w.hidden = pickedId !== 'new';
+      }));
+      body.querySelectorAll('[data-fstate]').forEach((b) => b.addEventListener('click', () => { finishState = b.dataset.fstate; Sound.tap(); renderBody(); }));
+    }
+    popup.el.querySelector('[data-idle-save]').addEventListener('click', () => {
+      if (mode === 'task') {
+        const mins = Math.max(1, +(body.querySelector('#idur-min').value || idleMin));
+        const creditedMs = mins * L.MIN;
+        let target = openTasks.find((b) => b.id === pickedId);
+        if (pickedId === 'new' || !target) {
+          const title = (body.querySelector('#inew-title')?.value || '').trim() || 'Backfilled task';
+          const c = window.Cats.last();
+          target = {
+            id: Store.uid(), date: key, kind: window.Cats.kindOf(c), cat: c.id, title,
+            plannedStart: startHm, expectedMin: mins, actualMs: 0, fixed: false, retro: true,
+          };
+        }
+        if (finishState === 'running') {
+          stopAll(n, target.id);
+          Store.saveBlock({ ...target, actualMs: (target.actualMs || 0) + creditedMs, runningSince: n.toISOString(), doneAt: null, retro: true });
+          Sound.pop();
+        } else {
+          const nb = { ...target, actualMs: (target.actualMs || 0) + creditedMs, runningSince: null, doneAt: n.toISOString(), retro: true };
+          Store.saveBlock(nb);
+          const diffMin = Math.round((nb.actualMs - nb.expectedMin * L.MIN) / L.MIN);
+          window.UI.celebrate(L.onTime(nb), diffMin, L.combo(S.blocks, nb.date), nb);
+        }
+      } else {
+        const note = (body.querySelector('#ibreak-note')?.value || '').trim() || 'Break / Off-screen';
+        const mins = Math.max(1, +(body.querySelector('#ibreak-min')?.value || idleMin));
+        const logs = [...(day.idleLogs || []), { id: Store.uid(), at: lastMark.toISOString(), min: mins, note }];
+        Store.patchDay(key, { idleExcusedMin: (day.idleExcusedMin || 0) + mins, idleLogs: logs });
+        // Also touch a pausedAt marker on the day so the live idle counter resets from now
+        Store.patchDay(key, { lastIdleAckAt: n.toISOString(), idleExcusedMin: (day.idleExcusedMin || 0) + mins, idleLogs: logs });
+        Sound.check();
+      }
+      popup.close();
+    });
+    renderBody();
+    popup.open();
+  }
+
+  // ---------- Temporary Snooze / Do Not Disturb for Idle Alerts (Report #5) ----------
+  function idleSnoozeSheet() {
+    const app = window.app, n = Store.now(), key = Store.today(), day = S.days[key] || {};
+    const snoozed = S.settings.idleSnoozeUntil && new Date(S.settings.idleSnoozeUntil) > n;
+    const setSnooze = (mins, reason) => {
+      if (!mins) {
+        Store.setKV('settings', { ...S.settings, idleSnoozeUntil: null, idleSnoozeReason: null });
+        Sound.tap();
+        return;
+      }
+      const until = new Date(n.getTime() + mins * L.MIN).toISOString();
+      Store.setKV('settings', { ...S.settings, idleSnoozeUntil: until, idleSnoozeReason: reason || 'Paused' });
+      Store.patchDay(key, {
+        idleExcusedMin: (day.idleExcusedMin || 0) + Math.min(mins, 240),
+        lastIdleAckAt: n.toISOString(),
+      });
+      Sound.check();
+      app.toast.create({ text: `Idle alerts paused (${reason || L.fmtDur(mins)})`, closeTimeout: 2000, cssClass: 'undo-toast' }).open();
+    };
+    const buttons = [
+      { text: 'Pause Idle Alerts (Nap / Class)', label: true },
+      { text: '30 min (Quick break / Nap)', onClick: () => setSnooze(30, '30m Nap/Break') },
+      { text: '1 hour (Class / Meeting)', onClick: () => setSnooze(60, '1h Class') },
+      { text: '2 hours (Class / Nap)', onClick: () => setSnooze(120, '2h Class/Nap') },
+      { text: 'Until I start a task', onClick: () => setSnooze(360, 'Paused until back') },
+    ];
+    if (snoozed) buttons.unshift({ text: 'Resume Idle Alerts Now', bold: true, color: 'green', onClick: () => setSnooze(0) });
+    app.actions.create({ cssClass: 'more-menu', buttons: [buttons, [{ text: 'Cancel', bold: true }]] }).open();
+  }
+
   // ---------- task editor (iOS "New Event" style popup) ----------
-  function taskEditor({ block, date, start } = {}) {
+  function taskEditor({ block, date, start: startArg } = {}) {
     const app = window.app;
     const isNew = !block;
     const key = block ? block.date : date || Store.today();
     const Cats = window.Cats;
     const b = block ? { ...block } : {
       id: Store.uid(), date: key, kind: 'task', title: '', step: (stepFor(key) || {}).n || null,
-      plannedStart: start || null, expectedMin: 30, fixed: false, cat: Cats.last().id,
+      plannedStart: startArg || null, expectedMin: 30, fixed: false, cat: Cats.last().id,
     };
     if (!b.cat) b.cat = Cats.of(b).id;
-    // a new task you didn't add comes back as it was (the sheet never loses what you typed)
     const DRAFT = 'crunch-task-draft';
     if (isNew) {
-      try { const d = JSON.parse(localStorage.getItem(DRAFT)); if (d) Object.assign(b, d, start ? { plannedStart: start } : {}); } catch (e) { /* none */ }
+      try { const d = JSON.parse(localStorage.getItem(DRAFT)); if (d) Object.assign(b, d, startArg ? { plannedStart: startArg } : {}); } catch (e) { /* none */ }
     }
     let saved = false;
     const durText = (m) => L.fmtDur(m);
+    const calcEndClock = (durMin, startStr, isTimed) => {
+      const baseMin = isTimed && startStr ? L.hm(startStr) : Math.round(L.minOfDay(Store.now()));
+      return L.hmStr(baseMin + (durMin || b.expectedMin));
+    };
     const popup = app.popup.create({
       swipeToClose: false, push: true,
       content: `<div class="popup task-popup"><div class="view"><div class="page">
@@ -143,7 +412,7 @@
               <span class="cat-val" data-cat style="--c:${Cats.hex(Cats.byId(b.cat))}">${esc((Cats.byId(b.cat) || {}).name || '')}</span></div></div></div></li>
           </ul></div>
           <div class="list list-strong list-dividers inset"><ul>
-            <li><a class="item-content item-link no-chevron" data-toggle="dur"><div class="item-inner"><div class="item-title">Duration</div><div class="item-after green num" data-dur>${durText(b.expectedMin)}</div></div></a></li>
+            <li><a class="item-content item-link no-chevron" data-toggle="dur"><div class="item-inner"><div class="item-title">Duration</div><div class="item-after num"><span class="green" data-dur>${durText(b.expectedMin)}</span><span class="dur-end muted" data-dur-end style="margin-left:8px;font-size:14px">→ ${calcEndClock(b.expectedMin, b.plannedStart, !!b.plannedStart)}</span></div></div></a></li>
             <li class="r-wheel" data-wheel="dur" hidden><div id="pick-dur"></div></li>
             <li><div class="item-content"><div class="item-inner"><div class="item-title">Set a time</div><div class="item-after">
               <label class="toggle"><input type="checkbox" name="timed" ${b.plannedStart ? 'checked' : ''}><span class="toggle-icon"></span></label></div></div></div></li>
@@ -178,7 +447,12 @@
     const el = popup.el;
     const pickers = [];
     if (isNew) el.querySelector('[name=title]').value = b.title || '';
-    // category + step: hold and roll, or tap for the list
+    const updateEndPreview = () => {
+      const isTimed = el.querySelector('[name=timed]').checked;
+      const stStr = isTimed ? (b.plannedStart || el.querySelector('[data-start]').textContent) : null;
+      const endEl = el.querySelector('[data-dur-end]');
+      if (endEl) endEl.textContent = `→ ${calcEndClock(b.expectedMin, stStr, isTimed)}`;
+    };
     const catEl = el.querySelector('[data-cat]');
     const setCat = (id) => { b.cat = id; const c = Cats.byId(id); catEl.textContent = c ? c.name : ''; catEl.style.setProperty('--c', Cats.hex(c)); };
     window.Roll.catRoll(catEl, { get: () => b.cat, set: setCat });
@@ -186,20 +460,22 @@
     const setStep = (n) => { b.step = n || null; stepEl.textContent = n ? stepTitle(n) : 'None'; };
     window.Roll.attach(stepEl, {
       values: () => [0, ...S.steps.map((s) => s.n)], index: (vals) => Math.max(0, vals.indexOf(b.step || 0)),
-      label: (n) => (n ? stepTitle(n) : 'None'), onEnd: setStep,
+      label: (n) => (n ? stepTitle(n) : 'None'), onChange: setStep, onEnd: setStep,
       onTap: () => app.actions.create({ cssClass: 'more-menu', buttons: [[{ text: 'None', onClick: () => setStep(0) },
         ...S.steps.map((s) => ({ text: `${s.n} · ${esc(s.title)}`, onClick: () => setStep(s.n) }))], [{ text: 'Cancel', bold: true }]] }).open(),
     });
-    // duration + start: hold the value and roll; a tap still opens the full wheel
-    window.Roll.durRoll(el.querySelector('[data-dur]'), { get: () => b.expectedMin, set: (m) => { b.expectedMin = m; el.querySelector('[data-dur]').textContent = durText(m); } });
-    window.Roll.timeRoll(el.querySelector('[data-start]'), { get: () => L.hm(b.plannedStart || el.querySelector('[data-start]').textContent), set: (m) => { b.plannedStart = L.hmStr(m); el.querySelector('[data-start]').textContent = b.plannedStart; } });
+    // duration + start: hold the value and roll (updates finish clock live!); a tap opens the full wheel
+    const setDurVal = (m) => { b.expectedMin = m; el.querySelector('[data-dur]').textContent = durText(m); updateEndPreview(); };
+    const setStartVal = (m) => { b.plannedStart = L.hmStr(m); el.querySelector('[data-start]').textContent = b.plannedStart; updateEndPreview(); };
+    window.Roll.durRoll(el.querySelector('[data-dur]'), { get: () => b.expectedMin, onChange: setDurVal, set: setDurVal });
+    window.Roll.timeRoll(el.querySelector('[data-start]'), { get: () => L.hm(b.plannedStart || el.querySelector('[data-start]').textContent), onChange: setStartVal, set: setStartVal });
     const hours = Array.from({ length: 13 }, (_, i) => i), mins = Array.from({ length: 12 }, (_, i) => i * 5);
     const makers = {};
     makers.dur = () => pickers.push(app.picker.create({
       containerEl: el.querySelector('#pick-dur'), toolbar: false, rotateEffect: true,
       value: [Math.min(12, Math.floor(b.expectedMin / 60)), b.expectedMin % 60 - (b.expectedMin % 5)],
       cols: [{ values: hours, displayValues: hours.map((h) => `${h} h`) }, { values: mins, displayValues: mins.map((m) => `${m} min`) }],
-      on: { change(_p, v) { const m = Math.max(5, +v[0] * 60 + +v[1]); b.expectedMin = m; el.querySelector('[data-dur]').textContent = durText(m); Sound.tap(); } },
+      on: { change(_p, v) { const m = Math.max(5, +v[0] * 60 + +v[1]); setDurVal(m); Sound.tap(); } },
     }));
     const ps = b.plannedStart || '09:00';
     const hh = Array.from({ length: 24 }, (_, i) => i);
@@ -207,7 +483,7 @@
       containerEl: el.querySelector('#pick-start'), toolbar: false, rotateEffect: true,
       value: [+ps.slice(0, 2), Math.round(+ps.slice(3) / 5) * 5 % 60],
       cols: [{ values: hh, displayValues: hh.map(L.pad) }, { divider: true, content: ':' }, { values: mins, displayValues: mins.map(L.pad) }],
-      on: { change(_p, v) { b.plannedStart = `${L.pad(+v[0])}:${L.pad(+v[1])}`; el.querySelector('[data-start]').textContent = b.plannedStart; Sound.tap(); } },
+      on: { change(_p, v) { b.plannedStart = `${L.pad(+v[0])}:${L.pad(+v[1])}`; el.querySelector('[data-start]').textContent = b.plannedStart; updateEndPreview(); Sound.tap(); } },
     }));
     el.querySelectorAll('[data-toggle]').forEach((a) => a.addEventListener('click', () => {
       const k = a.dataset.toggle, w = el.querySelector(`[data-wheel="${k}"]`); w.hidden = !w.hidden;
@@ -217,6 +493,7 @@
       el.querySelector('[data-row="start"]').hidden = !e.target.checked;
       if (!e.target.checked) el.querySelector('[data-wheel="start"]').hidden = true;
       if (e.target.checked && !b.plannedStart) b.plannedStart = el.querySelector('[data-start]').textContent;
+      updateEndPreview();
     });
     el.querySelector('[data-save]').addEventListener('click', () => {
       const f = (n) => el.querySelector(`[name=${n}]`);
@@ -226,10 +503,9 @@
       b.date = f('date').value || key;
       b.fixed = f('fixed').checked;
       if (!f('timed').checked) b.plannedStart = null;
-      if (block && block.plannedStart !== b.plannedStart) b.origStart = null;
+      if (block && block.plannedStart !== b.plannedStart) b.origStart = block.origStart || block.plannedStart;
       saved = true;
       if (S.settings.lastCat !== b.cat) Store.setKV('settings', { ...S.settings, lastCat: b.cat });
-      // a changed time or length on an existing timed task pushes the rest of the day like the planner does
       if (block && b.plannedStart && b.date === block.date && (b.plannedStart !== block.plannedStart || b.expectedMin !== block.expectedMin)) {
         Store.saveBlock({ ...b, plannedStart: block.plannedStart, expectedMin: block.expectedMin });
         applyTime(S.blocks.find((x) => x.id === b.id), L.hm(b.plannedStart), b.expectedMin);
@@ -245,7 +521,6 @@
   // ---------- Settings ----------
   let routineTab = 'morning';
   const THEMES = [['green', '#30d158'], ['orange', '#ff9f0a'], ['blue', '#0a84ff'], ['purple', '#bf5af2'], ['pink', '#ff375f'], ['mono', '#f2f2f7']];
-  // The accent colour of the whole app comes from one attribute on <html>.
   function applyTheme() {
     const t = S.settings.theme || 'green';
     if (t === 'green') delete document.documentElement.dataset.accent; else document.documentElement.dataset.accent = t;
@@ -381,6 +656,6 @@
   window.UI = {
     $, esc, longDate, shortDate, timeOf, stepFor, stepTitle, dayBlocks, running, DAYS, MONTHS,
     start, pause, done, startGym, blockMenu, stepMenu, taskEditor, settingsPopup, applyTheme,
-    complete, remove, undoToast, applyTime,
+    complete, remove, undoToast, applyTime, extendSheet, sleepWakeSheet, idleExplainSheet, idleSnoozeSheet,
   };
 })();

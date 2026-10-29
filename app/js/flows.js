@@ -1,5 +1,5 @@
 // Crunch - full-screen guided flows: morning (up -> routine -> overview -> start) and
-// evening (finish -> reveal -> night routine -> plan tomorrow -> bed).
+// evening (finish -> reveal -> planVsActual -> night routine -> plan tomorrow -> bed).
 (function () {
   const L = window.Logic, Store = window.Store, S = Store.state, UI = window.UI, { Sound, flameSVG } = window.FX;
   const root = () => document.getElementById('flow');
@@ -30,7 +30,6 @@
         <div class="fl-top"><span>${kind === 'morning' ? 'Morning routine' : 'Night routine'}</span>${dots(i, items.length)}</div>
         <div class="fl-center">
           <div class="routine-title">${UI.esc(it.title)}</div>
-          
           <div class="bigcheck ${it.min ? 'timed' : ''}" id="bc">
             <svg class="ring" viewBox="0 0 160 160"><circle class="cd-track" cx="80" cy="80" r="74"/>${it.min ? `<circle class="cd" id="cd" cx="80" cy="80" r="74" stroke-dasharray="${2 * Math.PI * 74}" stroke-dashoffset="0"/>` : ''}</svg>
             ${it.min ? '<div class="cd-time num" id="cdt"></div>' : '<i class="f7-icons bc-glyph">checkmark_alt</i>'}
@@ -92,7 +91,6 @@
       Sound.tick();
       routine('morning', (mins) => {
         Store.patchDay(Store.today(), { routineMin: Math.round(mins) });
-        // tasks planned before "now" slide to start now
         const moves = L.pushBack(S.blocks, Store.today(), Math.ceil(L.minOfDay(Store.now()) / 5) * 5);
         const changed = S.blocks.filter((b) => b.id in moves).map((b) => ({ ...b, origStart: b.origStart || b.plannedStart, plannedStart: L.hmStr(moves[b.id]) }));
         if (changed.length) Store.saveBlocks(changed);
@@ -132,7 +130,6 @@
     reveal(key, true);
   }
 
-  // Video-game style "Day passed / Day failed" screen.
   function countUp(el, to, fmt, ms = 700) {
     const t0 = performance.now();
     (function f(t) {
@@ -141,14 +138,13 @@
       if (k < 1) requestAnimationFrame(f);
     })(t0);
   }
+
   function reveal(key, thenNight) {
     const day = S.days[key], st = day.stats, prev = (S.days[L.addDays(key, -1)] || {}).stats;
     const prodOf = (x) => (x.prod != null ? x.prod : x.workMin / S.settings.workGoalMin);
     const prod = prodOf(st), prevProd = prev ? prodOf(prev) : null;
-    // "better" compares with yesterday; on the very first day it compares with the 75% streak bar
     const passed = prevProd == null ? prod >= L.STREAK_MIN : prod >= prevProd;
     const kept = prod >= L.STREAK_MIN;
-    const step = UI.stepFor(key);
     const streakN = L.streak(S.days, key);
     const lines = [
       { ic: 'alarm_fill', label: 'Woke up', to: st.lateUpMin || 0, fmt: () => (day.upAt ? UI.timeOf(day.upAt) : '–'), good: st.lateUpMin != null && st.lateUpMin <= 15 },
@@ -173,7 +169,7 @@
       <div class="fl-top"><span>${UI.longDate(key)}</span><a id="x">${thenNight ? '' : 'Close'}</a></div>
       <div class="reveal-scroll">
       <div class="mp-hero">
-        <div class="mp-ring">
+        <div class="mp-ring ring-3d">
           <svg viewBox="0 0 168 168" aria-hidden="true"><circle class="mr-track" cx="84" cy="84" r="${R}"/>
             <circle class="mr-fill" id="mrf" cx="84" cy="84" r="${R}" stroke-dasharray="${C}" stroke-dashoffset="${C}"/></svg>
           <div class="mr-in"><div class="mr-grade num" id="mrg"><span id="msv">0</span><small>%</small></div><div class="mr-score num">${L.fmtDur(st.workMin)} of ${L.fmtDur(S.settings.workGoalMin)}</div></div>
@@ -185,9 +181,12 @@
         <span class="mp-ic ${l.good ? 'good' : 'bad'}"><i class="f7-icons">${l.ic}</i></span>
         <span class="mp-l">${l.label}</span><span class="mp-vw">${delta(l)}<span class="mp-v num" id="mv${i}">${l.fmt(0)}</span></span></div>`).join('')}</div>
       </div>
-      <div class="fl-bottom mp-go" id="fb">${thenNight ? '<button class="btn big fill" id="go"><i class="f7-icons" style="font-size:20px">moon_fill</i>Night routine</button>' : '<button class="btn big gray" id="done">Close</button>'}</div>
+      <div class="fl-bottom mp-go" id="fb">
+        <button class="btn big fill" id="pva"><i class="f7-icons" style="font-size:20px">arrow_left_right</i>Planned vs. What Happened</button>
+        ${thenNight ? '' : '<button class="btn big gray" id="done">Close</button>'}
+      </div>
     </div>`);
-    // choreography: the ring fills while the score counts up, the grade pops, then each line ticks in
+    if (window.FX && window.FX.tilt3D) window.FX.tilt3D(el.querySelector('.mp-ring'), 12);
     later(() => {
       el.querySelector('#mrf').style.strokeDashoffset = C * (1 - Math.min(1, score / 100));
       el.querySelector('#mrg').classList.add('on');
@@ -207,6 +206,71 @@
       l.good ? Sound.tick() : Sound.pop();
     }, t0 + i * 220));
     later(() => { el.querySelector('#fb').classList.add('on'); }, t0 + lines.length * 220 + 300);
+    const x = el.querySelector('#x'); if (x) x.addEventListener('click', close);
+    const pva = el.querySelector('#pva'); if (pva) pva.addEventListener('click', () => planVsActualScreen(key, thenNight));
+    const dn = el.querySelector('#done'); if (dn) dn.addEventListener('click', close);
+  }
+
+  // ---------- Planned vs. What Really Happened Screen (Report #2) ----------
+  function planVsActualScreen(key = Store.today(), thenNight = false) {
+    const n = Store.now(), day = S.days[key] || {};
+    const items = L.planVsActual(key, S.blocks, n);
+    const plannedTotal = items.reduce((s, x) => s + x.expectedMin, 0);
+    const actualTotal = items.reduce((s, x) => s + x.actualMin, 0);
+    const onTimeCount = items.filter((x) => x.done && x.onTime).length;
+    const doneCount = items.filter((x) => x.done).length;
+    const idleLogs = day.idleLogs || [];
+
+    const rowRender = (it) => {
+      const cat = window.Cats.byId(it.cat) || window.Cats.list()[0];
+      const hex = window.Cats.hex(cat);
+      const planStr = it.plannedStart
+        ? `${it.plannedStart} → ${L.hmStr(L.hm(it.plannedStart) + it.expectedMin)} (${L.fmtDur(it.expectedMin)})`
+        : `Anytime (${L.fmtDur(it.expectedMin)})`;
+      let realStr = '', badge = '';
+      if (it.done) {
+        realStr = `${it.doneTime ? `Done ${it.doneTime} · ` : ''}${L.fmtDur(it.actualMin)} spent`;
+        const d = it.diffMin;
+        badge = `<span class="pva-badge ${d <= 0 ? 'green' : 'red'}">${d > 0 ? `+${d}m over` : d < 0 ? `${d}m faster` : 'On target'}</span>`;
+      } else if (it.actualMin > 0) {
+        realStr = `Paused · ${L.fmtDur(it.actualMin)} spent`;
+        badge = `<span class="pva-badge orange">Unfinished</span>`;
+      } else {
+        realStr = 'Did not start';
+        badge = `<span class="pva-badge red">Skipped</span>`;
+      }
+      return `<li class="pva-row ${it.done ? 'done' : 'missed'}">
+        <div class="pva-top">
+          <span class="cat-dot" style="--c:${hex}"></span>
+          <span class="pva-title">${UI.esc(it.title)}</span>
+          ${it.retro ? '<span class="pva-tag">Backfilled</span>' : ''}
+          ${badge}
+        </div>
+        <div class="pva-cols num">
+          <div class="pva-col"><span class="pva-lbl">PLANNED</span><span>${planStr}</span></div>
+          <div class="pva-col"><span class="pva-lbl">REALITY</span><span class="${it.done ? (it.onTime ? 'green' : 'red') : 'muted'}">${realStr}</span></div>
+        </div>
+      </li>`;
+    };
+
+    const el = show(`
+      <div class="fl-top"><span>${UI.longDate(key)}</span><a id="x">${thenNight ? '' : 'Close'}</a></div>
+      <div class="fl-eyebrow">End of Day Brief</div>
+      <div class="fl-title">Plan vs. Reality</div>
+      <div class="pva-summary num">
+        <div class="pva-stat"><span>Planned</span><b>${L.fmtDur(plannedTotal)}</b></div>
+        <div class="pva-stat"><span>Actual</span><b class="${actualTotal >= plannedTotal * 0.85 ? 'green' : 'orange'}">${L.fmtDur(actualTotal)}</b></div>
+        <div class="pva-stat"><span>On Time</span><b>${onTimeCount}/${doneCount || items.length}</b></div>
+      </div>
+      <div class="reveal-scroll" style="margin-top:12px">
+        ${items.length ? `<ul class="pva-list">${items.map(rowRender).join('')}</ul>` : '<div class="empty">No tasks scheduled for this day.</div>'}
+        ${idleLogs.length ? `<div class="sec-head fl-sec"><h3>Explained Idle / Breaks</h3></div>
+          <ul class="pva-list">${idleLogs.map((lg) => `<li class="pva-row"><div class="pva-top"><span class="pva-title">${UI.esc(lg.note)}</span><span class="pva-badge">${L.fmtDur(lg.min)}</span></div></li>`).join('')}</ul>` : ''}
+      </div>
+      <div class="fl-bottom" style="margin-top:12px">
+        ${thenNight ? '<button class="btn big fill" id="go"><i class="f7-icons" style="font-size:20px">moon_fill</i>Start Night Routine</button>' : '<button class="btn big fill" id="done">Done</button>'}
+      </div>`);
+    Sound.tick();
     const x = el.querySelector('#x'); if (x) x.addEventListener('click', close);
     const go = el.querySelector('#go'); if (go) go.addEventListener('click', night);
     const dn = el.querySelector('#done'); if (dn) dn.addEventListener('click', close);
@@ -262,5 +326,5 @@
     later(close, 6000);
   }
 
-  window.Flows = { morning, overview, finishDay, reveal, night, planTomorrow, bed, close, isOpen: () => !root().hidden };
+  window.Flows = { morning, overview, finishDay, reveal, planVsActual: planVsActualScreen, night, planTomorrow, bed, close, isOpen: () => !root().hidden };
 })();

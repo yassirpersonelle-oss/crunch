@@ -1,17 +1,67 @@
-// Crunch - the redesigned screens: Today (hero + half-ring gauge + round actions), task rows,
+// Crunch - the redesigned screens: Today (dynamic hero + half-ring gauge + round actions), task rows,
 // the full-screen task celebration, Plan (timeline) and History (one chart).
 (function () {
-  const L = window.Logic, Store = window.Store, S = Store.state, UI = window.UI, { Sound, flameSVG, confetti } = window.FX;
+  const L = window.Logic, Store = window.Store, S = Store.state, UI = window.UI, { Sound, flameSVG, confetti, tilt3D } = window.FX;
   const { $, esc, timeOf, stepFor, dayBlocks, running, DAYS, MONTHS } = UI;
   const icon = (name) => `<i class="f7-icons">${name}</i>`;
   const hoursOf = (ms) => Math.floor(ms / 3600000);
-  // "9 h 20" with small unit letters, for the Today hero
-  // hours left today, ticking every second for pressure: 7h 41m 23s
   const heroDur = (min) => { const s = Math.max(0, Math.floor(min * 60)); return `${Math.floor(s / 3600)}<span>h</span> ${L.pad(Math.floor(s / 60) % 60)}<span>m</span> ${L.pad(s % 60)}<span>s</span>`; };
 
+  // Dynamic hero state: starts with a brief contextual welcome on app open, then adapts to running/idle or user toggle
+  let heroMode = 'auto'; // 'auto' | 'today' | 'release' | 'context'
+  const openedAt = Date.now();
+
+  function toggleHeroMode() {
+    const order = ['auto', 'today', 'release', 'context'];
+    heroMode = order[(order.indexOf(heroMode) + 1) % order.length];
+    Sound.tap();
+    renderToday();
+  }
+
+  function heroContent(n, h, all, left, daysLeft) {
+    const tl = h.todayLeftMs / L.MIN;
+    const r = running();
+    const step = stepFor(Store.today());
+    const workH = Math.round(h.workMs / 3600000);
+    const justOpened = Date.now() - openedAt < 4500;
+    // When idle in auto mode, alternate every 8s between today's countdown and days/work-hours left
+    const idleCycle = !r && heroMode === 'auto' && Math.floor(Date.now() / 8000) % 2 === 1;
+
+    if (heroMode === 'context' || (heroMode === 'auto' && justOpened)) {
+      const topText = r
+        ? `Locked in`
+        : left === 0 && all.length > 0
+          ? `All done!`
+          : step
+            ? `Step ${step.n} · ${esc(step.title)}`
+            : `${daysLeft}<span>d</span> left`;
+      const subText = r
+        ? `${esc(r.title)} · ${left} task${left === 1 ? '' : 's'} remaining today`
+        : `${left} task${left === 1 ? '' : 's'} left today · ${workH}h waking work to release`;
+      return {
+        numCls: 'h-num h-context',
+        numHTML: topText,
+        subHTML: `${subText} · <a class="bed-link" data-action="sleep-wake">bed ${esc(S.settings.bed)}</a>`,
+      };
+    }
+
+    if (heroMode === 'release' || idleCycle) {
+      const cd = Math.floor(h.clockMs / 86400000), ch = Math.floor((h.clockMs % 86400000) / 3600000);
+      return {
+        numCls: 'h-num num',
+        numHTML: `${cd}<span>d</span> ${ch}<span>h</span>`,
+        subHTML: `${workH} waking hrs to release · <a class="bed-link" data-action="sleep-wake">wake ${esc(S.settings.wake)}–${esc(S.settings.bed)}</a>`,
+      };
+    }
+
+    return {
+      numCls: `h-num num ${tl < 120 ? 'red' : ''}`,
+      numHTML: heroDur(tl),
+      subHTML: `left today, until <a class="bed-link" data-action="sleep-wake">${esc(S.settings.bed)}</a>`,
+    };
+  }
+
   // ---------- rows (Today, Week "anytime", flows) ----------
-  // A task row: start time on the left (hold and roll to move it), title, duration on the right (hold and
-  // roll to stretch it). Swipe right = done, left = delete, long-press = drag to reorder.
   function rowHTML(b, n) {
     const run = !!b.runningSince, isDone = !!b.doneAt, act = L.actualMs(b, n);
     const hex = window.Cats.hex(window.Cats.of(b));
@@ -32,8 +82,9 @@
       lead = `<span class="r-ic gym">${icon('bolt_fill')}</span>`;
     }
     if (!isDone && b.origStart && b.origStart !== b.plannedStart) notes.push(`moved from <s class="moved">${b.origStart}</s>`);
-    if (!isDone && b.plannedStart && L.hm(b.plannedStart) + b.expectedMin > L.hm(S.settings.bed)) notes.push('<span class="red">after bedtime</span>');
+    if (!isDone && b.plannedStart && L.hm(b.plannedStart) + b.expectedMin > L.bedMinOf(S.settings)) notes.push('<span class="red">after bedtime</span>');
     if (b.fixed && !isDone) notes.push('fixed time');
+    if (b.retro) notes.push('backfilled');
     return `<li class="swipeout row ${isDone ? 'is-done' : ''}" data-id="${b.id}">
       <div class="swipeout-content"><a class="row-in" data-block="${b.id}">
         ${lead}${at}<span class="r-txt"><span class="r-title">${esc(b.title)}</span>${notes.length ? `<span class="r-sub">${notes.join(' · ')}</span>` : ''}</span>${trail}
@@ -103,9 +154,17 @@
 
   // ---------- Today ----------
   const ARC = Math.PI * 118; // half-ring length (r = 118)
+  function idleMinutesNow(n, key, day) {
+    const marks = [day.upAt, day.lastIdleAckAt, ...S.blocks.filter((b) => b.date === key).flatMap((b) => [b.doneAt, b.pausedAt])].filter(Boolean).map((x) => new Date(x));
+    return marks.length ? Math.max(0, (n - Math.max(...marks)) / L.MIN) : 0;
+  }
+
   function gaugeHTML(n) {
     const r = running(), key = Store.today(), day = S.days[key] || {};
-    let p = 0, cls = '', big = '', title = '', sub = '';
+    let p = 0, cls = '', big = '', title = '', sub = '', extra = '';
+    const snoozeUntil = S.settings.idleSnoozeUntil ? new Date(S.settings.idleSnoozeUntil) : null;
+    const isSnoozed = snoozeUntil && snoozeUntil > n;
+
     if (day.finishedAt) {
       const pr = day.stats ? (day.stats.prod != null ? day.stats.prod : day.stats.workMin / S.settings.workGoalMin) : 0;
       p = Math.min(1, pr);
@@ -116,31 +175,43 @@
       p = Math.min(1, act / exp); cls = over ? 'over' : r.kind === 'gym' ? 'gym' : '';
       ({ big, sub } = timerText(r, n));
       title = esc(r.title);
+    } else if (isSnoozed) {
+      cls = 'snoozed';
+      big = L.fmtDur(Math.max(1, (snoozeUntil - n) / L.MIN));
+      title = esc(S.settings.idleSnoozeReason || 'Alerts paused');
+      sub = `<a data-action="idle-snooze">Until ${timeOf(snoozeUntil)} · Tap to change</a>`;
+      extra = `<div class="idle-tools"><button class="pill" data-action="idle-snooze">${icon('bell_slash_fill')}Resume / Change</button><button class="pill" data-action="idle-explain">${icon('clock_fill')}Log task</button></div>`;
     } else {
-      const marks = [day.upAt, ...S.blocks.filter((b) => b.date === key).flatMap((b) => [b.doneAt, b.pausedAt])].filter(Boolean).map((x) => new Date(x));
-      const idle = marks.length ? (n - Math.max(...marks)) / L.MIN : 0;
+      const idle = idleMinutesNow(n, key, day);
       cls = 'idle';
-      big = idle >= 5 ? `<span class="red">${L.fmtDur(idle)}</span>` : '0:00';
-      title = idle >= 5 ? 'Idle' : 'Nothing running';
+      big = idle >= 1 ? `<span class="${idle >= 5 ? 'red' : ''}">${L.fmtDur(idle)}</span>` : '0:00';
+      title = idle >= 5 ? 'Idle — What are you doing?' : 'Nothing running';
       const next = dayBlocks(key).find((b) => !b.doneAt && b.kind === 'task');
       sub = next ? `Next: ${esc(next.title)}` : 'Add a task to start';
+      extra = `<div class="idle-tools">
+        <button class="pill ${idle >= 5 ? 'red' : ''}" data-action="idle-explain">${icon('arrow_counterclockwise')}Forgot to start / Explain</button>
+        <button class="pill" data-action="idle-snooze">${icon('moon_zzz_fill')}Pause alerts (Nap/Class)</button>
+      </div>`;
     }
-    return `<div class="hgauge ${cls}" id="gauge">
+    return `<div class="hgauge gauge-3d ${cls}" id="gauge">
       <svg viewBox="0 0 260 140" aria-hidden="true">
-        <defs><linearGradient id="gg" x1="0" x2="1"><stop offset="0" stop-color="var(--g1)"/><stop offset="1" stop-color="var(--g2)"/></linearGradient></defs>
+        <defs>
+          <linearGradient id="gg" x1="0" x2="1"><stop offset="0" stop-color="var(--g1)"/><stop offset="1" stop-color="var(--g2)"/></linearGradient>
+          <filter id="gglow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="var(--g1)" flood-opacity="0.45"/></filter>
+        </defs>
         <path class="g-track" d="M12 130 A118 118 0 0 1 248 130"/>
-        <path class="g-fill" id="g-fill" d="M12 130 A118 118 0 0 1 248 130" stroke-dasharray="${ARC}" stroke-dashoffset="${ARC * (1 - p)}"/>
+        <path class="g-fill" id="g-fill" filter="url(#gglow)" d="M12 130 A118 118 0 0 1 248 130" stroke-dasharray="${ARC}" stroke-dashoffset="${ARC * (1 - p)}"/>
       </svg>
-      <div class="g-in"><div class="g-big num" id="g-big" ${r && !day.finishedAt ? 'data-action="timer-mode"' : ''}>${big}</div><div class="g-title">${title}</div><div class="g-sub num" id="g-sub">${sub}</div></div>
-    </div>`;
+      <div class="g-in"><div class="g-big num" id="g-big" ${r && !day.finishedAt ? 'data-action="timer-mode"' : !r && !day.finishedAt ? 'data-action="idle-explain"' : ''}>${big}</div><div class="g-title">${title}</div><div class="g-sub num" id="g-sub">${sub}</div></div>
+    </div>${extra}`;
   }
 
   // The running task's number: time spent (18:07) or time left (11:53), tap to switch; over time is +3:10 in both.
   function timerText(r, n) {
     const act = L.actualMs(r, n), exp = r.expectedMin * L.MIN;
-    if (act > exp) return { big: `+${L.fmtTimer(act - exp)}`, sub: `<span class="red">over ${L.fmtDur(r.expectedMin)}</span>` };
-    if (S.settings.timerMode === 'left') return { big: L.fmtTimer(exp - act), sub: `left of ${L.fmtDur(r.expectedMin)}` };
-    return { big: L.fmtTimer(act), sub: `of ${L.fmtDur(r.expectedMin)}` };
+    if (act > exp) return { big: `+${L.fmtTimer(act - exp)}`, sub: `<a class="red" data-extend="${r.id}">over ${L.fmtDur(r.expectedMin)} · Tap to extend</a>` };
+    if (S.settings.timerMode === 'left') return { big: L.fmtTimer(exp - act), sub: `left of ${L.fmtDur(r.expectedMin)} · done ${L.hmStr(L.minOfDay(n) + (exp - act) / L.MIN)}` };
+    return { big: L.fmtTimer(act), sub: `of ${L.fmtDur(r.expectedMin)} · done ${L.hmStr(L.minOfDay(n) + (exp - act) / L.MIN)}` };
   }
   function toggleTimer() {
     Store.setKV('settings', { ...S.settings, timerMode: S.settings.timerMode === 'left' ? 'spent' : 'left' });
@@ -151,13 +222,14 @@
     const r = running(), key = Store.today(), day = S.days[key] || {};
     const btn = (action, ic, label, primary, data = '') => `<button class="act ${primary ? 'primary' : ''}" ${data || `data-action="${action}"`}><span>${icon(ic)}</span>${label}</button>`;
     if (day.finishedAt) {
-      return `<div class="acts">${btn('reveal', 'chart_bar_alt_fill', 'Results', true)}${day.bedAt ? '' : btn('night', 'moon_fill', 'Night')}${btn('more', 'ellipsis', 'More')}</div>`;
+      return `<div class="acts">${btn('reveal', 'chart_bar_alt_fill', 'Results', true)}${btn('plan-vs-actual', 'arrow_left_right', 'Plan vs Real')}${day.bedAt ? '' : btn('night', 'moon_fill', 'Night')}${btn('more', 'ellipsis', 'More')}</div>`;
     }
     const next = dayBlocks(key).find((b) => !b.doneAt && !b.runningSince && b.kind === 'task');
     const first = r ? btn('', 'checkmark_alt', 'Done', true, `data-done="${r.id}"`)
       : next ? btn('', 'play_fill', 'Start', true, `data-start="${next.id}"`) : btn('new-task', 'plus', 'Add', true);
     return `<div class="acts">${first}
       ${r ? btn('', 'pause_fill', 'Pause', false, `data-pause="${r.id}"`) : ''}
+      ${r ? btn('', 'plus_circle_fill', 'Extend', false, `data-extend="${r.id}"`) : ''}
       ${r ? btn('focus', 'eye_fill', 'Focus') : ''}
       ${btn('more', 'ellipsis', 'More')}</div>`;
   }
@@ -179,37 +251,59 @@
     const open = all.filter((b) => !b.doneAt);
     const list = showAll ? all : open.filter((b) => !b.runningSince).slice(0, 3);
     const tl = h.todayLeftMs / L.MIN;
+    const hc = heroContent(n, h, all, left, daysLeft);
+    // 1h before sleep time prominent Finish Day banner (Report #9)
+    const showFinishBanner = !day.finishedAt && day.upAt && tl <= 60;
+    const finishBannerHTML = showFinishBanner ? `
+      <div class="finish-banner" data-action="finish">
+        <div class="fb-ic">${icon('moon_stars_fill')}</div>
+        <div class="fb-txt">
+          <b>${tl <= 0 ? 'Past bedtime' : `${L.fmtDur(tl)} until sleep (${S.settings.bed})`}</b>
+          <span>Tap to finish the day & review Plan vs. Reality</span>
+        </div>
+        <button class="btn fill fb-btn">Finish Day</button>
+      </div>` : '';
+
     $('#today').innerHTML = `
-      <div class="h-hero">
-        <div class="h-num num ${tl < 120 ? 'red' : ''}" id="h-num">${heroDur(tl)}</div>
-        <div class="h-sub">left today, until ${S.settings.bed}</div>
-        <div class="h-pills"><span class="pill">${icon('flag_fill')}${daysLeft} days to release</span>
-          <span class="pill ${left ? '' : 'green'}">${icon(left ? 'list_bullet' : 'checkmark_alt')}${left ? `${left} task${left > 1 ? 's' : ''} left` : 'All done'}</span></div>
-      </div>
-      ${gaugeHTML(n)}
-      ${actionsHTML()}
-      <div class="sec-head"><h3>${showAll ? 'Today' : 'Up next'}</h3>${all.length > 3 || showAll ? `<a data-action="toggle-all">${showAll ? 'Less' : `See all ${all.length}`}</a>` : ''}</div>
-      ${list.length ? `<div class="list rows" id="upnext"><ul>${list.map((b) => rowHTML(b, n)).join('')}</ul></div>` : ''}
-      ${quickHTML()}
-      <div class="sec-head"><h3>So far</h3></div>
-      <div class="bars">
-        ${barRow('clock_fill', 'var(--green)', 'Work', `${L.fmtDur(st.workMin)} / ${L.fmtDur(S.settings.workGoalMin)}`, st.workMin / S.settings.workGoalMin)}
-        ${barRow('checkmark_alt', 'var(--teal)', 'Tasks', `${st.tasksDone} of ${st.tasksPlanned}`, st.tasksPlanned ? st.tasksDone / st.tasksPlanned : 0)}
-        ${barRow('hourglass', 'var(--red)', 'Wasted', L.fmtDur(st.wastedMin), st.wastedMin / 180, st.wastedMin > 60 ? 'red' : '')}
+      <div class="today-grid">
+        <div class="today-col today-left">
+          <div class="h-hero" id="h-hero">
+            <div class="${hc.numCls}" id="h-num" data-action="hero-mode" title="Tap to switch view">${hc.numHTML}</div>
+            <div class="h-sub" id="h-sub">${hc.subHTML}</div>
+            <div class="h-pills">
+              <span class="pill" data-action="hero-mode">${icon('flag_fill')}${daysLeft} days to release</span>
+              <span class="pill ${left ? '' : 'green'}">${icon(left ? 'list_bullet' : 'checkmark_alt')}${left ? `${left} task${left > 1 ? 's' : ''} left` : 'All done'}</span>
+            </div>
+          </div>
+          ${finishBannerHTML}
+          ${gaugeHTML(n)}
+          ${actionsHTML()}
+          <div class="sec-head"><h3>So far</h3></div>
+          <div class="bars">
+            ${barRow('clock_fill', 'var(--green)', 'Work', `${L.fmtDur(st.workMin)} / ${L.fmtDur(S.settings.workGoalMin)}`, st.workMin / S.settings.workGoalMin)}
+            ${barRow('checkmark_alt', 'var(--teal)', 'Tasks', `${st.tasksDone} of ${st.tasksPlanned}`, st.tasksPlanned ? st.tasksDone / st.tasksPlanned : 0)}
+            ${barRow('hourglass', 'var(--red)', 'Wasted', L.fmtDur(st.wastedMin), st.wastedMin / 180, st.wastedMin > 60 ? 'red' : '')}
+          </div>
+        </div>
+        <div class="today-col today-right">
+          <div class="sec-head"><h3>${showAll ? 'Today' : 'Up next'}</h3>${all.length > 3 || showAll ? `<a data-action="toggle-all">${showAll ? 'Less' : `See all ${all.length}`}</a>` : ''}</div>
+          ${list.length ? `<div class="list rows" id="upnext"><ul>${list.map((b) => rowHTML(b, n)).join('')}</ul></div>` : ''}
+          ${quickHTML()}
+        </div>
       </div>
       <div style="height:28px"></div>`;
     renderStreak();
     const un = $('#upnext ul'); if (un) { armRows(un); armReorder(un); }
+    const g = $('#gauge'); if (g && tilt3D) tilt3D(g, 8);
     armQuick();
   }
 
-  // ---------- fast add: title, start, length (end worked out), nothing else ----------
+  // ---------- fast add: title, start, length (end worked out live), nothing else ----------
   const qa = { open: false, title: '', start: null, dur: 30, cat: null };
   function openToday() {
-    const n = Store.now(), key = Store.today();
+    const key = Store.today();
     return S.blocks.filter((b) => b.date === key && b.plannedStart && !b.doneAt);
   }
-  // after the last planned task (or the running one), never in the past
   function qaAutoStart() {
     const n = Store.now(), nowMin = Math.ceil(L.minOfDay(n) / 5) * 5;
     let end = nowMin;
@@ -223,7 +317,7 @@
   function qaClash(s, d) {
     const hit = openToday().find((b) => { const bs = L.hm(b.plannedStart); return s < bs + b.expectedMin && s + d > bs; });
     if (hit) return `Overlaps ${esc(hit.title)} ${hit.plannedStart}–${L.hmStr(L.hm(hit.plannedStart) + hit.expectedMin)}`;
-    if (s + d > L.hm(S.settings.bed)) return `Ends after bedtime (${S.settings.bed})`;
+    if (s + d > L.bedMinOf(S.settings)) return `Ends after bedtime (${S.settings.bed})`;
     return '';
   }
   function quickHTML() {
@@ -242,8 +336,11 @@
   }
   function qaRefresh() {
     const s = qaStart();
-    $('#qa-s').textContent = L.hmStr(s); $('#qa-e').textContent = L.hmStr(s + qa.dur); $('#qa-d').textContent = L.fmtDur(qa.dur);
-    $('#qa-w').innerHTML = qaClash(s, qa.dur);
+    const qs = $('#qa-s'), qe = $('#qa-e'), qd = $('#qa-d'), qw = $('#qa-w');
+    if (qs) qs.textContent = L.hmStr(s);
+    if (qe) qe.textContent = L.hmStr(s + qa.dur);
+    if (qd) qd.textContent = L.fmtDur(qa.dur);
+    if (qw) qw.innerHTML = qaClash(s, qa.dur);
   }
   function armQuick() {
     const add = $('#qa-add');
@@ -259,9 +356,20 @@
     const t = $('#qa-t');
     t.addEventListener('input', () => { qa.title = t.value; });
     t.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); qaAdd(); } });
-    window.Roll.timeRoll($('#qa-s'), { get: qaStart, set: (m) => { qa.start = m; qaRefresh(); } });
-    window.Roll.durRoll($('#qa-d'), { get: () => qa.dur, set: (m) => { qa.dur = m; qaRefresh(); } });
-    window.Roll.catRoll($('#qa-cat'), { get: () => qa.cat, set: (id) => { qa.cat = id; const c = window.Cats.byId(id); $('#qa-cat').textContent = c.name; $('#qa-cat').style.setProperty('--c', window.Cats.hex(c)); } });
+    const updStart = (m) => { qa.start = m; qaRefresh(); };
+    const updDur = (m) => { qa.dur = m; qaRefresh(); };
+    const updCat = (id) => {
+      qa.cat = id;
+      const c = window.Cats.byId(id);
+      const cel = $('#qa-cat');
+      if (c && cel) {
+        cel.textContent = c.name;
+        cel.style.setProperty('--c', window.Cats.hex(c));
+      }
+    };
+    window.Roll.timeRoll($('#qa-s'), { get: qaStart, onChange: updStart, set: updStart });
+    window.Roll.durRoll($('#qa-d'), { get: () => qa.dur, onChange: updDur, set: updDur });
+    window.Roll.catRoll($('#qa-cat'), { get: () => qa.cat, set: updCat });
     $('#qa-x').addEventListener('click', () => { Object.assign(qa, { open: false, title: '', start: null }); renderToday(); });
     $('#qa-go').addEventListener('click', qaAdd);
   }
@@ -283,13 +391,42 @@
     $('.streak').innerHTML = `${flameSVG(L.combo(S.blocks, key), 20)}<span class="num">${L.streak(S.days, key)}</span>`;
   }
 
-  // Per-second update of the moving numbers only.
+  // Per-second update of the moving numbers + local idle nudge check.
+  let lastLocalIdleNudge = 0;
   function tickToday() {
-    const n = Store.now(), r = running();
+    const n = Store.now(), r = running(), key = Store.today(), day = S.days[key] || {};
     const h = L.hoursLeft(n, S.settings);
-    const hn = $('#h-num'); if (hn) hn.innerHTML = heroDur(h.todayLeftMs / L.MIN);
-    if (!r) return;
-    const g = $("#gauge"); if (!g) return;
+    const all = dayBlocks(key);
+    const left = all.filter((b) => b.kind === 'task' && !b.doneAt).length;
+    const rel = new Date(S.settings.releaseAt);
+    const daysLeft = Math.max(0, Math.floor((rel - n) / 86400000));
+    const hc = heroContent(n, h, all, left, daysLeft);
+    const hn = $('#h-num'), hs = $('#h-sub');
+    if (hn) {
+      hn.className = hc.numCls;
+      if (hn.innerHTML !== hc.numHTML) hn.innerHTML = hc.numHTML;
+    }
+    if (hs && hs.innerHTML !== hc.subHTML) hs.innerHTML = hc.subHTML;
+
+    if (!r) {
+      // Update idle counter & trigger local nudge if awake, not snoozed, and idle >= 2 min
+      const snoozeUntil = S.settings.idleSnoozeUntil ? new Date(S.settings.idleSnoozeUntil) : null;
+      const isSnoozed = snoozeUntil && snoozeUntil > n;
+      if (!day.finishedAt && day.upAt && !isSnoozed) {
+        const idle = idleMinutesNow(n, key, day);
+        const gb = $('#g-big');
+        if (gb && $('#gauge.idle')) {
+          gb.innerHTML = idle >= 1 ? `<span class="${idle >= 5 ? 'red' : ''}">${L.fmtDur(idle)}</span>` : '0:00';
+        }
+        // Local chime/nudge every 2 minutes when idle >= 2 min
+        if (idle >= 2 && Date.now() - lastLocalIdleNudge >= 120000) {
+          lastLocalIdleNudge = Date.now();
+          if (window.FX && window.FX.Sound && window.FX.Sound.nudge) window.FX.Sound.nudge();
+        }
+      }
+      return;
+    }
+    const g = $('#gauge'); if (!g) return;
     const act = L.actualMs(r, n), exp = r.expectedMin * L.MIN, over = act > exp;
     if (over !== g.classList.contains('over')) return renderToday();
     const tt = timerText(r, n);
@@ -298,15 +435,16 @@
     $('#g-fill').setAttribute('stroke-dashoffset', ARC * (1 - Math.min(1, act / exp)));
   }
 
-  // ---------- full-screen task celebration (Duolingo-style) ----------
-  // Top: flame + verdict. Middle: combo meter towards the blue flame (7). Bottom: the next task + "Crunch the next task".
+  // ---------- full-screen task celebration (all categories + 3D tilt card) ----------
   function celebrate(ok, diffMin, comboN, block) {
     const el = $('#celebrate');
     const streakN = L.streak(S.days, Store.today());
     const act = block && block.actualMs ? Math.round(block.actualMs / L.MIN) : 0;
     const expMin = block && block.expectedMin ? block.expectedMin : act - diffMin;
     const pct = expMin ? Math.round((-diffMin / expMin) * 100) : 0;
-    const next = dayBlocks(Store.today()).find((b) => !b.doneAt && !b.runningSince && b.kind === 'task' && (!block || b.id !== block.id));
+    const cat = block ? window.Cats.of(block) : null;
+    const catBadge = cat ? `<span class="qa-cat" style="--c:${window.Cats.hex(cat)};margin-bottom:6px">${esc(cat.name)}</span>` : '';
+    const next = dayBlocks(Store.today()).find((b) => !b.doneAt && !b.runningSince && (!block || b.id !== block.id));
     const lvl = ok ? Math.min(7, comboN) : 0;
     const segs = Array.from({ length: 7 }, (_, i) => `<i class="${i < lvl ? 'on' : ''}" style="animation-delay:${0.5 + i * 0.07}s"></i>`).join('');
     const meter = ok
@@ -314,9 +452,10 @@
       : 'Combo back to 0';
     el.innerHTML = `<div class="cel-full ${ok ? 'win' : 'lose'}">
       <canvas id="confetti"></canvas>
-      <div class="cel-center">
+      <div class="cel-center" id="cel-card">
+        ${catBadge}
         <div class="cel-flame">${flameSVG(lvl, ok ? 120 : 80)}</div>
-        <h1 class="cel-title">${ok ? (comboN >= 3 ? `${comboN} in a row!` : 'On time!') : 'Done, but late'}</h1>
+        <h1 class="cel-title">${ok ? (comboN >= 3 ? `${comboN} in a row!` : 'Crushed it!') : 'Done, but late'}</h1>
         <p class="cel-sub">${ok ? (pct > 0 ? `<b class="cel-pct">${pct}% faster</b> than you expected` : 'Right on your estimate') : `<b class="cel-pct late">${-pct}% slower</b> than you expected`}</p>
         <p class="cel-sub2">${act ? `${L.fmtDur(act)} of ${L.fmtDur(expMin)} planned` : ''}</p>
         <div class="cel-meter"><div class="cm-segs">${segs}</div><div class="cm-cap"><span>${meter}</span><span>${streakN} day streak</span></div></div>
@@ -331,6 +470,8 @@
       </div>
     </div>`;
     el.hidden = false;
+    const card = el.querySelector('#cel-card');
+    if (card && tilt3D) tilt3D(card, 14);
     const shut = () => { el.hidden = true; el.innerHTML = ''; };
     el.querySelector('#cel-x').addEventListener('click', shut);
     const go = el.querySelector('#cel-go'); if (go) go.addEventListener('click', () => { shut(); UI.start(next.id); });
@@ -384,11 +525,9 @@
       const st = d.stats || L.dayStats(k, S.blocks, S.days, S.settings, n);
       rows.push({ k, st, live: !d.finishedAt });
     }
-    // start the chart at the first logged day, so it has no empty left part
     const first = rows.findIndex((r) => !r.empty);
     return first > 0 ? rows.slice(Math.min(first, rows.length - 2)) : rows;
   }
-  // monotone cubic path: smooth, but never overshoots the real values
   function smooth(pts) {
     if (pts.length < 3) return pts.map((p, i) => `${i ? 'L' : 'M'}${p[0]},${p[1]}`).join(' ');
     const n = pts.length, dx = [], m = [], t = [];
@@ -424,7 +563,6 @@
       ${dayLabels(rows, x)}
     </svg>`;
   }
-  // Every metric as % of its own target, so they share one scale. Tap a line (or its chip) to highlight it.
   function chartAll(rows) {
     const x = xOf(rows), y = (v) => PT + (1 - Math.min(v, 150) / 150) * (H - PT - PB);
     const lines = Object.entries(METRICS).map(([k, M]) => {
@@ -479,5 +617,5 @@
     const t = e.target.closest('[data-action="toggle-all"]'); if (t) { showAll = !showAll; renderToday(); }
   });
 
-  Object.assign(window.UI, { rowHTML, armRows, renderToday, renderStreak, tickToday, celebrate, renderPlan, renderHistory, toggleTimer, timerText });
+  Object.assign(window.UI, { rowHTML, armRows, renderToday, renderStreak, tickToday, celebrate, renderPlan, renderHistory, toggleTimer, timerText, toggleHeroMode });
 })();

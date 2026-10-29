@@ -1,32 +1,52 @@
-// Crunch - Focus mode: the running task's countdown, huge, with the screen kept awake. Scroll down for
-// subtasks (name, start, length -> end worked out; tick it off to stamp the real finish) and notes.
-// Opens by itself after 20 s untouched on Today while a task runs (app.js), or from the Focus button.
+// Crunch - Focus mode: the running task's countdown, huge, with the screen kept awake and dimmed.
+// Scroll down for subtasks (name, start, length -> end worked out; tick it off to stamp the real finish) and notes.
 (function () {
   const L = window.Logic, Store = window.Store, S = Store.state, { Sound } = window.FX;
   const UI = () => window.UI;
   const esc = (s) => window.UI.esc(s);
-  let isOpen = false, lock = null, saveTimer = null;
+  let isOpen = false, lock = null, saveTimer = null, dimTimer = null, manualBright = false;
   const add = { title: '', start: null, dur: 15 };
   const root = () => document.getElementById('focus');
   const $ = (sel) => root().querySelector(sel);
   const nowMin = () => L.minOfDay(Store.now());
 
-  // ---- screen stays awake while Focus is open ----
+  // ---- screen stays awake while Focus is open, and dims to save eyes / battery ----
   async function wake() { try { if (navigator.wakeLock) lock = await navigator.wakeLock.request('screen'); } catch (e) { lock = null; } }
   document.addEventListener('visibilitychange', () => { if (isOpen && !document.hidden) wake(); });
+
+  function scheduleDeepDim() {
+    clearTimeout(dimTimer);
+    const el = root();
+    if (!el || !isOpen) return;
+    el.classList.toggle('bright', manualBright);
+    if (manualBright) { el.classList.remove('deep-dim'); return; }
+    dimTimer = setTimeout(() => { if (isOpen && !manualBright) el.classList.add('deep-dim'); }, 10000);
+  }
+
+  function wakeFromDeepDim() {
+    if (!isOpen) return;
+    const el = root();
+    if (el) el.classList.remove('deep-dim');
+    scheduleDeepDim();
+  }
+  ['pointerdown', 'keydown', 'scroll', 'touchstart'].forEach((ev) => document.addEventListener(ev, wakeFromDeepDim, { passive: true }));
 
   function open() {
     if (!UI().running() || isOpen) return;
     isOpen = true;
+    manualBright = false;
     const el = root(); el.hidden = false; el.scrollTop = 0;
+    el.classList.add('dimmed');
     render(true);
     requestAnimationFrame(() => el.classList.add('in'));
     wake();
+    scheduleDeepDim();
   }
   function close() {
     if (!isOpen) return;
     isOpen = false;
-    const el = root(); el.classList.remove('in');
+    clearTimeout(dimTimer);
+    const el = root(); el.classList.remove('in', 'dimmed', 'deep-dim', 'bright');
     setTimeout(() => { if (!isOpen) el.hidden = true; }, 250);
     if (lock) { lock.release().catch(() => {}); lock = null; }
     window.dispatchEvent(new Event('focus-closed'));
@@ -41,7 +61,6 @@
     const s = Math.max(0, Math.floor(L.hoursLeft(n, S.settings).todayLeftMs / 1000));
     return `${Math.floor(s / 3600)}h ${L.pad(Math.floor(s / 60) % 60)}m ${L.pad(s % 60)}s left today`;
   }
-  // when the running task's planned time runs out, in minutes of the day
   const taskEnd = (b, n) => L.minOfDay(n) + Math.max(0, (b.expectedMin * L.MIN - L.actualMs(b, n)) / L.MIN);
 
   // ---- subtasks ----
@@ -65,7 +84,7 @@
     return `<li class="fs ${x.done != null ? 'done' : ''}" data-sub="${x.id}">
       <a class="fs-chk" data-sub-chk="${x.id}" aria-label="Done">${x.done != null ? '<i class="f7-icons">checkmark_alt</i>' : ''}</a>
       <div class="fs-main"><div class="fs-t">${esc(x.t)}</div>
-        <div class="fs-time num"><span class="fs-v" data-sub-s="${x.id}">${L.hmStr(x.s)}</span><span class="fs-arrow">→</span><span>${L.hmStr(x.s + x.d)}</span>
+        <div class="fs-time num"><span class="fs-v" data-sub-s="${x.id}">${L.hmStr(x.s)}</span><span class="fs-arrow">→</span><span data-sub-e="${x.id}">${L.hmStr(x.s + x.d)}</span>
           <span class="fs-v fs-d" data-sub-d="${x.id}">${L.fmtDur(x.d)}</span></div>
         ${x.done != null ? `<div class="fs-done num">Done <span class="fs-v" data-sub-done="${x.id}">${L.hmStr(x.done)}</span>
           <b class="${diff > 0 ? 'red' : 'green'}">${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${Math.abs(diff)} min</b></div>` : ''}
@@ -82,13 +101,19 @@
     const n = Store.now(), big = bigText(b, n), list = subs(b);
     const s = add.start == null ? nextStart(b) : add.start, warn = warnFor(b, list, s, add.dur, null);
     root().innerHTML = `<div class="fo-wrap">
-      <a class="fo-top" data-fclose><i class="f7-icons">chevron_down</i>Today</a>
+      <div class="fo-bar">
+        <a class="fo-top" data-fclose><i class="f7-icons">chevron_down</i>Today</a>
+        <a class="fo-dim-btn" data-fdim title="Toggle brightness"><i class="f7-icons">${manualBright ? 'sun_max_fill' : 'moon_fill'}</i><span>${manualBright ? 'Bright' : 'Dimmed'}</span></a>
+      </div>
       <div class="fo-hero">
         <div class="fo-big num ${big.over ? 'over' : ''}" id="fo-big">${big.t}</div>
         <div class="fo-title">${esc(b.title)}</div>
         <div class="fo-day num" id="fo-day">${dayLeft(n)}</div>
-        <div class="fo-acts"><button class="act primary" data-done="${b.id}"><span><i class="f7-icons">checkmark_alt</i></span>Done</button>
-          <button class="act" data-pause="${b.id}"><span><i class="f7-icons">pause_fill</i></span>Pause</button></div>
+        <div class="fo-acts">
+          <button class="act primary" data-done="${b.id}"><span><i class="f7-icons">checkmark_alt</i></span>Done</button>
+          <button class="act" data-extend="${b.id}"><span><i class="f7-icons">plus_circle_fill</i></span>Extend</button>
+          <button class="act" data-pause="${b.id}"><span><i class="f7-icons">pause_fill</i></span>Pause</button>
+        </div>
         <div class="fo-hint"><i class="f7-icons">chevron_compact_down</i>Subtasks and notes</div>
       </div>
       <div class="fo-body">
@@ -111,8 +136,16 @@
     const R = window.Roll;
     const list = subs(b);
     const upd = (id, patch) => { const cur = UI().running(); if (!cur) return; saveSubs(cur, subs(cur).map((x) => (x.id === id ? { ...x, ...patch } : x))); render(true); };
-    root().querySelectorAll('[data-sub-s]').forEach((el) => { const x = list.find((y) => y.id === el.dataset.subS); R.timeRoll(el, { exact: true, get: () => x.s, set: (m) => upd(x.id, { s: m }) }); });
-    root().querySelectorAll('[data-sub-d]').forEach((el) => { const x = list.find((y) => y.id === el.dataset.subD); R.durRoll(el, { get: () => x.d, set: (m) => upd(x.id, { d: m }) }); });
+    root().querySelectorAll('[data-sub-s]').forEach((el) => {
+      const x = list.find((y) => y.id === el.dataset.subS);
+      const endEl = root().querySelector(`[data-sub-e="${x.id}"]`);
+      R.timeRoll(el, { exact: true, get: () => x.s, onChange: (m) => { if (endEl) endEl.textContent = L.hmStr(m + x.d); }, set: (m) => upd(x.id, { s: m }) });
+    });
+    root().querySelectorAll('[data-sub-d]').forEach((el) => {
+      const x = list.find((y) => y.id === el.dataset.subD);
+      const endEl = root().querySelector(`[data-sub-e="${x.id}"]`);
+      R.durRoll(el, { get: () => x.d, onChange: (m) => { if (endEl) endEl.textContent = L.hmStr(x.s + m); }, set: (m) => upd(x.id, { d: m }) });
+    });
     root().querySelectorAll('[data-sub-done]').forEach((el) => { const x = list.find((y) => y.id === el.dataset.subDone); R.timeRoll(el, { exact: true, get: () => x.done, set: (m) => upd(x.id, { done: m }) }); });
     root().querySelectorAll('[data-sub-chk]').forEach((el) => el.addEventListener('click', () => {
       const x = list.find((y) => y.id === el.dataset.subChk);
@@ -125,7 +158,6 @@
       saveSubs(cur, before.filter((y) => y.id !== x.id)); render(true);
       UI().undoToast(`Deleted ${x.t}`, () => { const c2 = S.blocks.find((y) => y.id === cur.id); if (c2) { saveSubs(c2, before); render(true); } });
     }));
-    // add a subtask
     const t = $('#fs-t');
     const startNow = () => (add.start == null ? nextStart(b) : add.start);
     const refresh = () => {
@@ -144,15 +176,23 @@
     };
     t.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
     $('#fs-go').addEventListener('click', go);
-    R.timeRoll($('#fs-s'), { exact: true, get: startNow, set: (m) => { add.start = m; refresh(); } });
-    R.durRoll($('#fs-d'), { get: () => add.dur, set: (m) => { add.dur = m; refresh(); } });
-    // notes save a moment after you stop typing
+    const updS = (m) => { add.start = m; refresh(); };
+    const updD = (m) => { add.dur = m; refresh(); };
+    R.timeRoll($('#fs-s'), { exact: true, get: startNow, onChange: updS, set: updS });
+    R.durRoll($('#fs-d'), { get: () => add.dur, onChange: updD, set: updD });
     const notes = $('#fo-notes');
     notes.addEventListener('input', () => {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => { const cur = UI().running(); if (cur) Store.saveBlock({ ...cur, notes: notes.value }); }, 700);
     });
     $('[data-fclose]').addEventListener('click', close);
+    const dimBtn = $('[data-fdim]');
+    if (dimBtn) dimBtn.addEventListener('click', () => {
+      manualBright = !manualBright;
+      Sound.tap();
+      scheduleDeepDim();
+      render(true);
+    });
   }
 
   function tick() {

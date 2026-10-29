@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
 
   for (const uid of users) {
     const { data: kv } = await sb.from('kv').select('key,data').eq('user_id', uid).eq('key', 'settings').maybeSingle();
-    const st = { wake: '07:00', bed: '23:00', tz: 'Europe/Paris', ...(kv?.data || {}) };
+    const st = { wake: '07:00', bed: '23:00', tz: 'Europe/Paris', idleSnoozeUntil: null as string | null, ...(kv?.data || {}) };
     const w = wall(st.tz, now);
     const [{ data: dayRow }, { data: rows }] = await Promise.all([
       sb.from('days').select('data').eq('user_id', uid).eq('date', w.date).maybeSingle(),
@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
     const day = dayRow?.data || {};
     const blocks: Block[] = (rows || []).map((r) => ({ ...r.data, id: r.id, date: r.date }));
     const out: { tag: string; title: string; body: string }[] = [];
-    const wake = hm(st.wake), bed = hm(st.bed);
+    const wake = hm(st.wake), rawBed = hm(st.bed), bed = rawBed <= wake ? rawBed + 1440 : rawBed;
 
     // 1) a planned task's start time
     for (const b of blocks) {
@@ -49,30 +49,29 @@ Deno.serve(async (req) => {
       const s = hm(b.plannedStart);
       if (w.min >= s && w.min < s + 3) out.push({ tag: `start:${b.id}:${b.plannedStart}`, title: `Start: ${b.title}`, body: `${fmt(b.expectedMin)} planned · tap to open Crunch` });
     }
-    // 2) the running task reaches its time, then every +10 min
+
+    // 2) Overtime push notifications removed per user preference (no nagging when over time).
     const run = blocks.find((b) => b.runningSince);
-    if (run) {
-      const act = (run.actualMs || 0) + (now.getTime() - new Date(run.runningSince!).getTime());
-      const over = act - run.expectedMin * MIN;
-      if (over >= 0) {
-        const k = Math.floor(over / (10 * MIN));
-        out.push(k === 0
-          ? { tag: `over:${run.id}:0`, title: `Time's up: ${run.title}`, body: `${fmt(run.expectedMin)} done. Finish it or it turns red.` }
-          : { tag: `over:${run.id}:${k}`, title: `+${k * 10} min over`, body: `${run.title} is running late.` });
+
+    // 3) Idle nudges: start at 5 min idle, repeat every 2 min while awake unless snoozed (nap / class)
+    const snoozed = st.idleSnoozeUntil && now.getTime() < new Date(st.idleSnoozeUntil).getTime();
+    if (day.upAt && !day.finishedAt && !run && !snoozed && w.min >= wake && w.min < bed) {
+      const marks = [day.upAt, day.lastIdleAckAt, ...blocks.flatMap((b) => [b.doneAt, b.pausedAt])].filter(Boolean).map((x) => new Date(x as string).getTime());
+      const lastMark = Math.max(...marks);
+      const idle = (now.getTime() - lastMark) / MIN;
+      if (idle >= 5) {
+        const k = Math.floor(idle / 2);
+        out.push({
+          tag: `idle:${w.date}:${lastMark}:${k}`,
+          title: `Idle ${fmt(idle)} — What are you doing?`,
+          body: 'Start a task, backfill what you were doing, or pause alerts for class/nap.',
+        });
       }
     }
-    // 3) nothing running for 20 min while awake
-    if (day.upAt && !day.finishedAt && !run && w.min >= wake && w.min < bed) {
-      const marks = [day.upAt, ...blocks.flatMap((b) => [b.doneAt, b.pausedAt])].filter(Boolean).map((x) => new Date(x as string).getTime());
-      const idle = (now.getTime() - Math.max(...marks)) / MIN;
-      if (idle >= 20) {
-        const k = Math.floor(idle / 20);
-        out.push({ tag: `idle:${w.date}:${Math.max(...marks)}:${k}`, title: 'Wasted time is ticking', body: `Nothing running for ${fmt(k * 20)}. Start your next task.` });
-      }
-    }
-    // 4) wind down + bedtime
+
+    // 4) wind down 1h before sleep + bedtime
     if (!day.finishedAt) {
-      if (w.min >= bed - 30 && w.min < bed) out.push({ tag: `wind:${w.date}`, title: 'Wind down in 30 min', body: 'Wrap up your current task.' });
+      if (w.min >= bed - 60 && w.min < bed) out.push({ tag: `wind:${w.date}`, title: '1h until sleep — Finish the day', body: 'Wrap up and review your Plan vs. Reality.' });
       if (w.min >= bed && w.min < bed + 60) out.push({ tag: `bed:${w.date}`, title: 'Bedtime', body: 'Finish the day and start your night routine.' });
     }
     // 5) not up yet

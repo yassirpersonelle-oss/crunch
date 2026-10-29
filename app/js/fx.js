@@ -1,4 +1,4 @@
-// Crunch - sounds (synthesised, no assets) and the flame.
+// Crunch - sounds (synthesised, no assets), haptics, 3D visual effects and the flame.
 (function () {
   let ctx = null;
   const ac = () => {
@@ -39,9 +39,9 @@
     better: () => Sound.grade(), worse: () => Sound.soft(),
     tap: () => tone(1400, 0, 0.025, 0.04, 'triangle'),
     seg: () => tone(1760, 0, 0.05, 0.05),
+    nudge: () => { tone(987.77, 0, 0.1, 0.14, 'triangle'); tone(1318.5, 0.11, 0.16, 0.12, 'triangle'); },
   };
   // Recorded sounds (howler.js) replace the synthesised ones where we have a file.
-  // tap, check, seg: Kenney CC0. win, late (soft), better, worse: made for Crunch (tools/synth_sounds.py).
   const FILES = {
     tap: ['sounds/tap.mp3', 0.5], check: ['sounds/check.mp3', 0.7], seg: ['sounds/seg.mp3', 0.45],
     win: ['sounds/win.mp3', 0.8], soft: ['sounds/late.mp3', 0.6], better: ['sounds/better.mp3', 0.85], worse: ['sounds/worse.mp3', 0.7],
@@ -53,18 +53,45 @@
     }
   }
 
-  // ---- haptics on iPhone (ios-haptics: a hidden iOS switch under each tappable thing) ----
-  // The library loads as a module from index.html and sets window.hapticTrigger; we attach it to every
-  // button as it appears. Elsewhere (PC, Android) it does nothing.
-  const HAPTIC = '.act, .btn, .tab-link, .bigcheck, .carry, .theme-dot, .seg-wrap .button, .h-chip, .cel-later';
+  // ---- haptics on iPhone & Android ----
+  let hapSwitch = null;
+  function ensureHapSwitch() {
+    if (hapSwitch && hapSwitch.isConnected) return hapSwitch;
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;width:1px;height:1px;overflow:hidden';
+    lbl.setAttribute('aria-hidden', 'true');
+    const inp = document.createElement('input');
+    inp.type = 'checkbox';
+    inp.setAttribute('switch', '');
+    lbl.appendChild(inp);
+    document.body.appendChild(lbl);
+    if (window.hapticTrigger) {
+      try { window.hapticTrigger(lbl); } catch (e) { /* ignore */ }
+    }
+    hapSwitch = lbl;
+    return lbl;
+  }
+
+  // Programmatic haptic pulse for each scroll increment
+  function haptic(ms = 10) {
+    if (navigator.vibrate) {
+      try { navigator.vibrate(ms); } catch (e) { /* ignore */ }
+    }
+    try {
+      const sw = ensureHapSwitch();
+      if (sw) sw.click();
+    } catch (e) { /* ignore */ }
+  }
+
+  const HAPTIC = '.act, .btn, .tab-link, .bigcheck, .carry, .theme-dot, .seg-wrap .button, .h-chip, .cel-later, .pill';
   function armHaptics(root) {
-    if (!window.hapticTrigger) return;
+    if (!window.hapticTrigger || !root || !root.querySelectorAll) return;
     root.querySelectorAll(HAPTIC).forEach((el) => { if (!el.dataset.hap) { el.dataset.hap = '1'; window.hapticTrigger(el); } });
   }
-  // every tappable thing gives a tiny click, like iOS keyboard clicks
-  document.addEventListener('pointerdown', (e) => { if (e.target.closest(HAPTIC)) Sound.tap(); }, { passive: true });
+  document.addEventListener('pointerdown', (e) => { if (e.target.closest && e.target.closest(HAPTIC)) Sound.tap(); }, { passive: true });
   window.addEventListener('haptics-ready', () => {
     armHaptics(document);
+    ensureHapSwitch();
     new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) armHaptics(n.parentNode || n); })))
       .observe(document.body, { childList: true, subtree: true });
   });
@@ -90,28 +117,98 @@
           d="M16.4 18.6c.8 3.6 5.6 5.8 5.6 10.4 0 4.6-2.8 7.4-6 7.4s-6-2.6-5.6-6.6c.3-2.8 2.4-4.2 3-6.6 1.4 1.2 1.8 2.6 1.8 3.8 1.4-2 1.8-5.2 1.2-8.4Z"/>
       </g></svg>`;
   }
-  // Confetti burst on a canvas that fills its parent.
-  function confetti(canvas, count = 140) {
+
+  // ---- 3D Interactive Perspective Tilt & Specular Glare ----
+  function tilt3D(el, maxDeg = 12) {
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    el.classList.add('card-3d');
+    const move = (e) => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      const y = ((e.clientY - r.top) / r.height) * 2 - 1;
+      el.style.setProperty('--rx', `${(-y * maxDeg).toFixed(2)}deg`);
+      el.style.setProperty('--ry', `${(x * maxDeg).toFixed(2)}deg`);
+      el.style.setProperty('--gx', `${((x + 1) * 50).toFixed(1)}%`);
+      el.style.setProperty('--gy', `${((y + 1) * 50).toFixed(1)}%`);
+    };
+    const reset = () => {
+      el.style.setProperty('--rx', '0deg');
+      el.style.setProperty('--ry', '0deg');
+      el.style.setProperty('--gx', '50%');
+      el.style.setProperty('--gy', '20%');
+    };
+    el.addEventListener('pointermove', move, { passive: true });
+    el.addEventListener('pointerleave', reset);
+    el.addEventListener('pointerup', reset);
+  }
+
+  // ---- 3D Odometer Digit Flip helper ----
+  function flipUpdate(el, htmlOrText, isHTML = false) {
+    if (!el) return;
+    const prev = isHTML ? el.innerHTML : el.textContent;
+    if (prev === htmlOrText) return;
+    if (isHTML) el.innerHTML = htmlOrText; else el.textContent = htmlOrText;
+    el.classList.remove('flip-3d');
+    void el.offsetWidth;
+    el.classList.add('flip-3d');
+  }
+
+  // ---- 3D Metallic Confetti + Glowing Sparks ----
+  function confetti(canvas, count = 160) {
     if (!canvas || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
     canvas.width = W * dpr; canvas.height = H * dpr;
     const g = canvas.getContext('2d'); g.scale(dpr, dpr);
-    const colors = ['#ff9f0a', '#ffd60a', '#30d158', '#64d2ff', '#ff375f', '#bf5af2'];
-    const parts = Array.from({ length: count }, () => ({
-      x: W / 2 + (Math.random() - 0.5) * 60, y: H * 0.32, vx: (Math.random() - 0.5) * 13, vy: -Math.random() * 15 - 5,
-      r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4, w: 6 + Math.random() * 6, h: 3 + Math.random() * 4,
+    const colors = ['#ff9f0a', '#ffd60a', '#30d158', '#64d2ff', '#ff375f', '#bf5af2', '#ffffff'];
+    const parts = Array.from({ length: count }, (_, i) => ({
+      x: W / 2 + (Math.random() - 0.5) * 70,
+      y: H * 0.34,
+      vx: (Math.random() - 0.5) * 15,
+      vy: -Math.random() * 16 - 5,
+      r: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 0.35,
+      pitch: Math.random() * Math.PI * 2,
+      vpitch: (Math.random() - 0.5) * 0.28,
+      w: 6 + Math.random() * 7,
+      h: 4 + Math.random() * 5,
+      spark: i % 5 === 0,
       c: colors[(Math.random() * colors.length) | 0],
     }));
     const t0 = performance.now();
     (function frame(t) {
       const age = (t - t0) / 1000; g.clearRect(0, 0, W, H);
       for (const p of parts) {
-        p.vy += 0.42; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr;
-        g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, age - 1.8)); g.translate(p.x, p.y); g.rotate(p.r);
-        g.fillStyle = p.c; g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.r * 2))); g.restore();
+        p.vy += p.spark ? 0.25 : 0.42;
+        p.vx *= 0.99; p.x += p.vx; p.y += p.vy;
+        p.r += p.vr; p.pitch += p.vpitch;
+        const alpha = Math.max(0, 1 - Math.max(0, age - 1.8));
+        g.save();
+        g.globalAlpha = alpha;
+        g.translate(p.x, p.y);
+        if (p.spark) {
+          g.shadowColor = p.c;
+          g.shadowBlur = 10;
+          g.fillStyle = '#fff';
+          g.beginPath();
+          g.arc(0, 0, 2.2, 0, Math.PI * 2);
+          g.fill();
+        } else {
+          g.rotate(p.r);
+          const tilt = Math.cos(p.pitch);
+          g.scale(1, tilt);
+          g.fillStyle = p.c;
+          g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+          if (tilt > 0.4) {
+            g.fillStyle = 'rgba(255,255,255,0.35)';
+            g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * 0.35);
+          }
+        }
+        g.restore();
       }
-      if (age < 2.9 && canvas.isConnected) requestAnimationFrame(frame); else g.clearRect(0, 0, W, H);
+      if (age < 3.0 && canvas.isConnected) requestAnimationFrame(frame); else g.clearRect(0, 0, W, H);
     })(t0);
   }
-  window.FX = { Sound, flameSVG, confetti };
+
+  window.FX = { Sound, haptic, flameSVG, confetti, tilt3D, flipUpdate };
 })();

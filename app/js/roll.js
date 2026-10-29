@@ -1,72 +1,74 @@
-// Crunch - "hold and roll": press a time, a duration or a category and slide up or down to change it.
-// A small wheel shows the values around the finger, with a click on every step (iPhone won't let a web
-// app vibrate during a slide). Also: categories (colours, "counts as work").
+// Crunch - "hold and roll": press a time, a duration or a category and slide up or down to change it inline.
+// No floating popup window: numbers and colours update right in place with haptic + audio feedback on every step.
 (function () {
   const L = window.Logic, Store = window.Store, S = Store.state;
   const PX = 13;            // finger travel per step
   const FAST = 0.9;         // px/ms: above this speed one step of travel moves 3 values
 
-  // opts: { values: [...], index(): current index, label(v): text, onEnd(v), onTap() }
-  // Numeric helpers below build `values` for times and durations.
+  function stepFeedback(el) {
+    if (window.FX) {
+      window.FX.Sound.tap();
+      if (window.FX.haptic) window.FX.haptic(8);
+    }
+    el.classList.remove('roll-tick');
+    void el.offsetWidth;
+    el.classList.add('roll-tick');
+  }
+
+  // opts: { values: [...], index(): current index, label(v): text, onChange(v), onEnd(v), onTap() }
   function attach(el, opts) {
     el.classList.add('roll');
     let st = null;
-    // a sideways slide belongs to the row's swipe (done / delete); only an open wheel keeps the touch to itself
-    el.addEventListener('touchmove', (e) => { if (st && st.pop) e.stopPropagation(); }, { passive: true });
+    // a sideways slide belongs to the row's swipe (done / delete); only an active vertical roll keeps the touch to itself
+    el.addEventListener('touchmove', (e) => { if (st && st.active) e.stopPropagation(); }, { passive: true });
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       const vals = typeof opts.values === 'function' ? opts.values() : opts.values;
-      st = { x: e.clientX, y: e.clientY, last: e.clientY, t: performance.now(), i: Math.max(0, opts.index(vals)), vals, moved: false, pid: e.pointerId, pop: null, acc: 0 };
+      st = { x: e.clientX, y: e.clientY, last: e.clientY, t: performance.now(), i: Math.max(0, opts.index(vals)), vals, moved: false, pid: e.pointerId, active: false, acc: 0 };
       try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-      st.hold = setTimeout(() => { if (st && !st.moved) open(); }, 220);
+      st.hold = setTimeout(() => { if (st && !st.moved) activate(); }, 200);
     });
-    function open() {
-      if (st.pop) return;
+    function activate() {
+      if (!st || st.active) return;
       st.moved = true;
-      st.pop = document.createElement('div'); st.pop.className = 'roll-pop';
-      document.body.appendChild(st.pop);
+      st.active = true;
       el.classList.add('rolling');
       draw();
-      window.FX.Sound.tap();
+      stepFeedback(el);
     }
     function draw() {
-      const r = el.getBoundingClientRect(), rows = [];
-      for (let k = -2; k <= 2; k++) {
-        const v = st.vals[st.i + k];
-        rows.push(`<div class="${k === 0 ? 'on' : ''} d${Math.abs(k)}">${v === undefined ? '' : opts.label(v)}</div>`);
-      }
-      st.pop.innerHTML = rows.join('');
-      const w = Math.max(120, r.width + 40);
-      st.pop.style.width = `${w}px`;
-      st.pop.style.left = `${Math.min(innerWidth - w - 8, Math.max(8, r.left + r.width / 2 - w / 2))}px`;
-      st.pop.style.top = `${r.top + r.height / 2 - 110}px`;
-      el.textContent = opts.label(st.vals[st.i]);
+      const v = st.vals[st.i];
+      el.textContent = opts.label(v);
+      if (opts.onChange) opts.onChange(v);
     }
     el.addEventListener('pointermove', (e) => {
       if (!st) return;
       const dy = st.last - e.clientY; // finger up = later / longer
-      if (!st.pop) {
+      if (!st.active) {
         const ax = Math.abs(e.clientX - st.x), ay = Math.abs(e.clientY - st.y);
         if (ax > 6 && ax > ay) { clearTimeout(st.hold); try { el.releasePointerCapture(st.pid); } catch (err) { /* ignore */ } st = null; return; }
         if (ay < 4) return;
-        open();
+        activate();
       }
       const now = performance.now(), speed = Math.abs(e.clientY - st.last) / Math.max(1, now - st.t);
       st.t = now; st.last = e.clientY;
       st.acc += dy * (speed > FAST ? 3 : 1);
-      let steps = Math.trunc(st.acc / PX);
+      const steps = Math.trunc(st.acc / PX);
       if (!steps) return;
       st.acc -= steps * PX;
       const ni = Math.max(0, Math.min(st.vals.length - 1, st.i + steps));
-      if (ni !== st.i) { st.i = ni; draw(); window.FX.Sound.tap(); }
+      if (ni !== st.i) {
+        st.i = ni;
+        draw();
+        stepFeedback(el);
+      }
     });
     const end = (e) => {
       if (!st) return;
       clearTimeout(st.hold);
       const s = st; st = null;
-      el.classList.remove('rolling');
-      if (s.pop) {
-        s.pop.remove();
+      el.classList.remove('rolling', 'roll-tick');
+      if (s.active) {
         // swallow the click that follows, so the row behind doesn't open its menu
         const eat = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
         el.addEventListener('click', eat, { capture: true, once: true });
@@ -85,16 +87,23 @@
   const durs = () => [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 75, 90, 105, 120, 150, 180, 210, 240, 300, 360, 420, 480];
   const nearest = (vals, v) => vals.reduce((bi, x, i) => (Math.abs(x - v) < Math.abs(vals[bi] - v) ? i : bi), 0);
   // time of day in minutes; `exact` keeps an odd minute (like 14:07) in the list so the wheel starts on it
-  function timeRoll(el, { get, set, exact }) {
+  function timeRoll(el, { get, set, onChange, exact }) {
     attach(el, {
       values: () => { const v = times(); const g = get(); if (exact && g % 5) { v.push(g); v.sort((a, b) => a - b); } return v; },
       index: (vals) => nearest(vals, get()),
       label: (m) => L.hmStr(m),
+      onChange: onChange || null,
       onEnd: set,
     });
   }
-  function durRoll(el, { get, set }) {
-    attach(el, { values: durs, index: (vals) => nearest(vals, get()), label: (m) => L.fmtDur(m), onEnd: set });
+  function durRoll(el, { get, set, onChange }) {
+    attach(el, {
+      values: durs,
+      index: (vals) => nearest(vals, get()),
+      label: (m) => L.fmtDur(m),
+      onChange: onChange || null,
+      onEnd: set,
+    });
   }
 
   // ---------- categories ----------
@@ -127,12 +136,19 @@
       });
     },
   };
-  // a category roll: slide through the categories; the last stop is "New category…"
+  // a category roll: slide through the categories; colour updates live on every step!
   function catRoll(el, { get, set }) {
     attach(el, {
       values: () => [...Cats.list().map((c) => c.id), '+new'],
       index: (vals) => Math.max(0, vals.indexOf(get())),
       label: (id) => (id === '+new' ? 'New category…' : (Cats.byId(id) || {}).name || ''),
+      onChange: (id) => {
+        if (id === '+new') {
+          el.style.setProperty('--c', '#8e8e93');
+        } else {
+          set(id);
+        }
+      },
       onEnd: (id) => (id === '+new' ? Cats.create((c) => set(c.id)) : set(id)),
       onTap: () => catSheet(get(), set),
     });

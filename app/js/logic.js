@@ -8,7 +8,7 @@
   const parseDate = (key) => { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d); };
   const addDays = (key, n) => { const d = parseDate(key); d.setDate(d.getDate() + n); return dateKey(d); };
   const hm = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };       // "07:30" -> 450
-  const hmStr = (min) => `${pad(Math.floor(min / 60) % 24)}:${pad(Math.round(min) % 60)}`;
+  const hmStr = (min) => `${pad(Math.floor(((min % 1440) + 1440) % 1440 / 60) % 24)}:${pad(Math.round(((min % 1440) + 1440) % 1440) % 60)}`;
   const at = (key, minOfDay) => { const d = parseDate(key); d.setMinutes(minOfDay); return d; };
   const minOfDay = (d) => d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
 
@@ -31,19 +31,30 @@
   };
 
   // ---- countdown ----
+  // Handles bedtimes before or after midnight (e.g. "01:00" = 25:00 of the waking day).
+  function bedMinOf(settings) {
+    const w = hm((settings && settings.wake) || '07:00');
+    const b = hm((settings && settings.bed) || '23:00');
+    return b <= w ? b + 1440 : b;
+  }
+
   // Work hours left = the overlap of [now, release] with every wake..bed window.
   function hoursLeft(now, settings) {
     const release = new Date(settings.releaseAt);
     const clockMs = Math.max(0, release - now);
+    const wakeM = hm(settings.wake || '07:00'), bedM = bedMinOf(settings);
     let workMs = 0;
-    let key = dateKey(now);
+    let key = addDays(dateKey(now), -1);
     while (parseDate(key) <= release) {
-      const a = Math.max(at(key, hm(settings.wake)).getTime(), now.getTime());
-      const b = Math.min(at(key, hm(settings.bed)).getTime(), release.getTime());
+      const a = Math.max(at(key, wakeM).getTime(), now.getTime());
+      const b = Math.min(at(key, bedM).getTime(), release.getTime());
       if (b > a) workMs += b - a;
       key = addDays(key, 1);
     }
-    const todayLeftMs = Math.max(0, at(dateKey(now), hm(settings.bed)) - now);
+    const todayKey = dateKey(now);
+    const prevBed = at(addDays(todayKey, -1), bedM);
+    const targetBed = bedM > 1440 && now < prevBed ? prevBed : at(todayKey, bedM);
+    const todayLeftMs = Math.max(0, targetBed - now);
     return { clockMs, workMs, todayLeftMs };
   }
 
@@ -64,13 +75,36 @@
   const onTime = (b) => isDone(b) && (b.actualMs || 0) <= b.expectedMin * MIN + 30000; // 30 s grace
   const productivity = (b) => (b.actualMs ? (b.expectedMin * MIN) / b.actualMs : 0);
 
-  // On-time combo: consecutive on-time finishes counted back from the latest finished task today.
+  // On-time combo: consecutive on-time finishes counted back from the latest finished block today.
   function combo(blocks, date) {
-    const done = blocks.filter((b) => b.date === date && b.kind === 'task' && isDone(b))
+    const done = blocks.filter((b) => b.date === date && isDone(b))
       .sort((a, b) => new Date(a.doneAt) - new Date(b.doneAt));
     let c = 0;
     for (let i = done.length - 1; i >= 0; i--) { if (onTime(done[i])) c++; else break; }
     return c;
+  }
+
+  // ---- Planned vs Actual comparison ----
+  function planVsActual(date, blocks, now) {
+    const mine = blocks.filter((b) => b.date === date).slice().sort((a, b) => {
+      const sa = a.origStart || a.plannedStart || '99:99';
+      const sb = b.origStart || b.plannedStart || '99:99';
+      return sa.localeCompare(sb) || (a.sort || 0) - (b.sort || 0);
+    });
+    return mine.map((b) => {
+      const actMin = Math.round(actualMs(b, now || new Date()) / MIN);
+      const expMin = b.expectedMin || 0;
+      const done = isDone(b);
+      const diffMin = done || actMin > 0 ? actMin - expMin : 0;
+      const doneTime = b.doneAt ? (() => { const d = new Date(b.doneAt); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; })() : null;
+      return {
+        id: b.id, title: b.title, kind: b.kind || 'task', cat: b.cat,
+        plannedStart: b.origStart || b.plannedStart || null,
+        currentStart: b.plannedStart || null,
+        expectedMin: expMin, actualMin: actMin, diffMin,
+        done, doneTime, onTime: onTime(b), retro: !!b.retro,
+      };
+    });
   }
 
   // ---- day scoring ----
@@ -89,7 +123,8 @@
     const workMin = tasks.filter(counts).reduce((s, b) => s + actualMs(b, end) / MIN, 0);
     const gymMin = mine.filter((b) => b.kind === 'gym').reduce((s, b) => s + actualMs(b, end) / MIN, 0);
     const routineMin = (day.routineMin || 0);
-    const wastedMin = Math.max(0, awakeMin - workMin - gymMin - routineMin - settings.wasteAllowMin);
+    const excusedMin = (day.idleExcusedMin || 0);
+    const wastedMin = Math.max(0, awakeMin - workMin - gymMin - routineMin - excusedMin - settings.wasteAllowMin);
 
     const done = tasks.filter(isDone);
     const prods = done.filter((b) => b.actualMs > 0).map((b) => Math.min(1.5, productivity(b)));
@@ -97,7 +132,7 @@
 
     const sleepMin = prev.bedAt && up ? Math.max(0, (up - new Date(prev.bedAt)) / MIN) : null;
     const lateUpMin = up ? Math.max(0, (up - at(date, hm(settings.wake))) / MIN) : null;
-    const lateBedMin = prev.bedAt ? Math.max(0, (new Date(prev.bedAt) - at(addDays(date, -1), hm(settings.bed))) / MIN) : null;
+    const lateBedMin = prev.bedAt ? Math.max(0, (new Date(prev.bedAt) - at(addDays(date, -1), bedMinOf(settings))) / MIN) : null;
 
     // rings, 0..1 (capped)
     const work = Math.min(1, workMin / settings.workGoalMin);
@@ -111,7 +146,7 @@
     // productivity = work hours vs the daily goal (can pass 100%)
     const prod = workMin / settings.workGoalMin;
     return {
-      awakeMin, workMin, gymMin, routineMin, wastedMin, sleepMin, lateUpMin, lateBedMin,
+      awakeMin, workMin, gymMin, routineMin, excusedMin, wastedMin, sleepMin, lateUpMin, lateBedMin,
       tasksDone: done.length, tasksPlanned: tasks.length, avgProd, prod,
       rings: { work, tasks: taskRing, discipline }, score, grade: grade(score),
     };
@@ -202,8 +237,8 @@
 
   const api = {
     MIN, pad, dateKey, parseDate, addDays, hm, hmStr, at, minOfDay, fmtDur, fmtClock, fmtTimer,
-    hoursLeft, dayNumber, actualMs, isRunning, isDone, overMs, onTime, productivity, combo,
-    dayStats, grade, goodGrade, streak, dayProd, STREAK_MIN, ripple, reorder, pushBack,
+    bedMinOf, hoursLeft, dayNumber, actualMs, isRunning, isDone, overMs, onTime, productivity, combo,
+    planVsActual, dayStats, grade, goodGrade, streak, dayProd, STREAK_MIN, ripple, reorder, pushBack,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;

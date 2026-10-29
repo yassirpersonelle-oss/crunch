@@ -27,10 +27,14 @@ html.dark, html.dark .ios { --f7-list-bg-color: #1c1c1e; --f7-list-item-border-c
 body { font-family: var(--f7-font-family); -webkit-font-smoothing: antialiased; }
 .num { font-variant-numeric: tabular-nums; }
 
-/* On a wide PC window, show the app as a phone-width column */
-@media (min-width: 520px) {
-  #app { max-width: 430px; margin: 0 auto; border-left: 1px solid #1a1a1a; border-right: 1px solid #1a1a1a; }
-  #flow, #celebrate { max-width: 430px; margin: 0 auto; }
+/* Medium tablet window: phone column; Wide PC window (>=900px): full desktop layout (unless ?sim) */
+@media (min-width: 520px) and (max-width: 899px), (min-width: 520px) {
+  html.sim #app { max-width: 430px; margin: 0 auto; border-left: 1px solid #1a1a1a; border-right: 1px solid #1a1a1a; }
+  html.sim #flow, html.sim #celebrate { max-width: 430px; margin: 0 auto; }
+}
+@media (min-width: 520px) and (max-width: 899px) {
+  #app { max-width: 480px; margin: 0 auto; border-left: 1px solid #1a1a1a; border-right: 1px solid #1a1a1a; }
+  #flow, #celebrate { max-width: 480px; margin: 0 auto; }
 }
 
 /* ---------- navbar streak flame ---------- */
@@ -83,7 +87,7 @@ body { font-family: var(--f7-font-family); -webkit-font-smoothing: antialiased; 
 .fl.enter { animation: flIn .45s cubic-bezier(.2,.9,.3,1) both; }
 @keyframes flIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 .fl-top { display: flex; justify-content: space-between; align-items: center; min-height: 32px; font-size: 15px; color: var(--label2); }
-.fl-top a { color: var(--accent); }
+.fl-top a { color: var(--accent); cursor: pointer; }
 .dots { display: flex; gap: 6px; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--label3); }
 .dots i.on { background: var(--orange); }
@@ -120,7 +124,6 @@ body { font-family: var(--f7-font-family); -webkit-font-smoothing: antialiased; 
 .login h1 { font-family: var(--display); font-size: 28px; margin: 18px 0 6px; }
 .login p { color: var(--label2); font-size: 15px; margin: 0 0 24px; max-width: 300px; }
 .login input { width: 100%; max-width: 320px; height: 48px; border-radius: 12px; border: 0; background: var(--card); color: #fff; font: inherit; font-size: 17px; padding: 0 14px; text-align: center; outline: none; }
-
 .login .err { color: var(--red); font-size: 13px; min-height: 18px; margin-top: 8px; }
 
 /* settings routine rows */

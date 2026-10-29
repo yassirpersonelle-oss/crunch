@@ -33,11 +33,12 @@
       const li = sw.closest('li.swipeout'); if (li) app.swipeout.close(li);
       return sw.dataset.complete ? UI.complete(sw.dataset.complete) : UI.remove(sw.dataset.remove);
     }
-    const t = e.target.closest('[data-action],[data-start],[data-pause],[data-done],[data-block],[data-step]');
+    const t = e.target.closest('[data-action],[data-start],[data-pause],[data-done],[data-extend],[data-block],[data-step]');
     if (!t || t.closest('.swipeout-actions-right')) return;
     if (t.dataset.start) return UI.start(t.dataset.start);
     if (t.dataset.pause) return UI.pause(t.dataset.pause);
     if (t.dataset.done) return UI.done(t.dataset.done);
+    if (t.dataset.extend) return UI.extendSheet(t.dataset.extend);
     if (t.dataset.step && t.closest('#plan')) return UI.stepMenu(+t.dataset.step);
     if (t.dataset.block) {
       if (t.closest('#flow')) return; // flows handle their own rows
@@ -49,13 +50,18 @@
       case 'settings': return UI.settingsPopup();
       case 'week-today': return window.Week.goToday();
       case 'reveal': return window.Flows.reveal(Store.today(), false);
+      case 'plan-vs-actual': return window.Flows.planVsActual(Store.today(), false);
       case 'night': return window.Flows.night();
       case 'streak': return app.dialog.alert(`${L.streak(S.days, Store.today())} days in a row at 75% of your work goal or more. The flame grows with every task finished on time today.`, 'Streak');
       case 'finish': return finishAsk();
       case 'more': return moreMenu();
       case 'timer-mode': return UI.toggleTimer();
+      case 'hero-mode': return UI.toggleHeroMode();
+      case 'sleep-wake': return UI.sleepWakeSheet();
+      case 'idle-explain': return UI.idleExplainSheet();
+      case 'idle-snooze': return UI.idleSnoozeSheet();
       case 'focus': return window.Focus.open();
-      case 'support': return window.Support.open();
+      case 'support': return UI.settingsPopup && window.Support.open();
       default:
     }
   });
@@ -71,7 +77,13 @@
     const r = UI.running(), day = S.days[Store.today()] || {};
     const ic = (n) => `<i class="f7-icons">${n}</i>`;
     const items = [{ text: 'Add a task', icon: ic('plus'), onClick: () => UI.taskEditor({ date: Store.today() }) }];
+    if (r) items.push({ text: 'Extend running task', icon: ic('plus_circle_fill'), onClick: () => UI.extendSheet(r) });
+    if (!r && !day.finishedAt) {
+      items.push({ text: 'Explain idle / Backfill task', icon: ic('arrow_counterclockwise'), onClick: () => UI.idleExplainSheet() });
+      items.push({ text: 'Pause idle alerts (Nap / Class)', icon: ic('moon_zzz_fill'), onClick: () => UI.idleSnoozeSheet() });
+    }
     if (!(r && r.kind === 'gym') && !day.finishedAt) items.push({ text: 'Start gym', icon: ic('bolt_fill'), onClick: () => UI.startGym() });
+    items.push({ text: 'Sleep & Wake times', icon: ic('alarm_fill'), onClick: () => UI.sleepWakeSheet() });
     if (!day.finishedAt) items.push({ text: 'Finish the day', icon: ic('moon_fill'), onClick: finishAsk });
     items.push({ text: 'Report a bug or idea', icon: ic('ant_fill'), onClick: () => window.Support.open() });
     app.actions.create({ cssClass: 'more-menu', buttons: [items, [{ text: 'Cancel', bold: true }]] }).open();
@@ -91,7 +103,6 @@
   // ---------- start ----------
   Store.on(() => render());
   Store.init().then(() => {
-    // build 5: the gym is no longer a wall by default, so a task that runs long pushes it down
     if (!S.settings.m5) {
       const walls = S.blocks.filter((b) => b.kind === 'gym' && b.fixed);
       if (walls.length) Store.saveBlocks(walls.map((b) => ({ ...b, fixed: false })));
@@ -112,7 +123,7 @@
     maybeMorning();
     document.addEventListener('visibilitychange', () => { if (!document.hidden) maybeMorning(); });
   }).catch((e) => {
-    if (e.message === 'missing config') {  // installed before the cloud was set up: say so calmly
+    if (e.message === 'missing config') {
       const el = document.createElement('div'); el.className = 'login';
       el.innerHTML = `<img src="icons/icon-192.png" alt=""><h1>Almost ready</h1><p>Crunch is installed. Syncing between your iPhone and PC is being set up, so this screen updates by itself. Open the app again in a little while.</p>`;
       document.body.appendChild(el); return;
@@ -126,7 +137,6 @@
     if (n.getHours() >= 4 && !day.upAt && !day.finishedAt) window.Flows.morning();
   }
 
-  // Screenshot / review hooks: ?demo=1&screen=week|plan|history|settings|task|reveal|routine|tomorrow|morning|night|celebrate
   function openScreen(s) {
     const tab = (name) => app.tab.show(`#view-${name}`);
     const key = Store.today();
@@ -141,7 +151,8 @@
       case 'tomorrow': window.Flows.planTomorrow(); break;
       case 'night': window.Flows.bed(); break;
       case 'reveal': window.Flows.finishDay(); break;
-      case 'passed': { // demo: a good day
+      case 'pva': window.Flows.planVsActual(key, false); break;
+      case 'passed': {
         window.Flows.finishDay();
         const d = S.days[key];
         Store.patchDay(key, { grade: 'B', stats: { ...d.stats, score: 0.82, prod: 545 / 480, workMin: 545, tasksDone: 7, tasksPlanned: 8, wastedMin: 35, gymMin: 62, avgProd: 0.97, lateUpMin: 5 } });
